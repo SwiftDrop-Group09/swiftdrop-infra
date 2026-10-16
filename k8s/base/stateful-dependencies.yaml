@@ -1,0 +1,210 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+spec:
+  clusterIP: None
+  selector:
+    app: rabbitmq
+  ports:
+    - {name: amqp, port: 5672, targetPort: amqp}
+    - {name: management, port: 15672, targetPort: management}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4-management
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: amqp, containerPort: 5672}
+            - {name: management, containerPort: 15672}
+          env:
+            - name: RABBITMQ_NODENAME
+              value: rabbit@rabbitmq-0
+            - name: RABBITMQ_DEFAULT_USER
+              value: local_admin
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secrets
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQ_ERLANG_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secrets
+                  key: RABBITMQ_ERLANG_COOKIE
+            - name: DELIVERY_BROKER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secrets
+                  key: DELIVERY_BROKER_PASSWORD
+            - name: WORKER_BROKER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secrets
+                  key: WORKER_BROKER_PASSWORD
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "/config/bootstrap-users.sh"]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/rabbitmq}
+            - {name: broker-bootstrap, mountPath: /config, readOnly: true}
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 1000m, memory: 1Gi}
+        - name: broker-bootstrap
+          configMap:
+            name: rabbitmq-bootstrap
+            defaultMode: 0555
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: object-store
+spec:
+  selector:
+    app: object-store
+  ports:
+    - {name: api, port: 9000, targetPort: api}
+    - {name: console, port: 9001, targetPort: console}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: object-store
+spec:
+  serviceName: object-store
+  replicas: 1
+  selector:
+    matchLabels:
+      app: object-store
+  template:
+    metadata:
+      labels:
+        app: object-store
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: object-store
+          image: minio/minio:latest
+          imagePullPolicy: IfNotPresent
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - {name: api, containerPort: 9000}
+            - {name: console, containerPort: 9001}
+          env:
+            - name: MINIO_ROOT_USER
+              value: local_admin
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: object-store-secrets
+                  key: MINIO_ROOT_PASSWORD
+          volumeMounts:
+            - {name: data, mountPath: /data}
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 1000m, memory: 1Gi}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: object-store-bootstrap
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: bootstrap
+          image: minio/mc:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until mc alias set local http://object-store:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done
+              mc mb --ignore-existing local/swiftdrop-private
+              mc anonymous set none local/swiftdrop-private
+              mc admin user info local "$DELIVERY_OBJECT_ACCESS_KEY" >/dev/null 2>&1 || mc admin user add local "$DELIVERY_OBJECT_ACCESS_KEY" "$DELIVERY_OBJECT_SECRET_KEY"
+              mc admin policy info local delivery-private >/dev/null 2>&1 || mc admin policy create local delivery-private /config/delivery-policy.json
+              mc admin policy attach local delivery-private --user "$DELIVERY_OBJECT_ACCESS_KEY"
+          env:
+            - name: MINIO_ROOT_USER
+              value: local_admin
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: object-store-secrets
+                  key: MINIO_ROOT_PASSWORD
+            - name: DELIVERY_OBJECT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-store-secrets
+                  key: DELIVERY_OBJECT_ACCESS_KEY
+            - name: DELIVERY_OBJECT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-store-secrets
+                  key: DELIVERY_OBJECT_SECRET_KEY
+          volumeMounts:
+            - name: policy
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: policy
+          configMap:
+            name: delivery-private-policy

@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-config
+data:
+  ASPNETCORE_ENVIRONMENT: Production
+  DOTNET_ENVIRONMENT: Production
+  Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
+  Jwt__Issuer: https://identity.example.invalid
+  Jwt__Audience: swiftdrop-api-local
+  Google__WebClientId: REPLACE_WITH_WEB_CLIENT_ID
+  Google__AndroidClientId: REPLACE_WITH_ANDROID_CLIENT_ID
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: delivery-config
+data:
+  ASPNETCORE_ENVIRONMENT: Production
+  DOTNET_ENVIRONMENT: Production
+  Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
+  Kestrel__Endpoints__Grpc__Url: http://0.0.0.0:8081
+  Operations__TimeZone: Asia/Colombo
+  Broker__Host: rabbitmq
+  Broker__Username: delivery_bus
+  ObjectStore__Endpoint: http://object-store:9000
+  ObjectStore__Bucket: swiftdrop-private
+  Jwt__Issuer: https://identity.example.invalid
+  Jwt__Audience: swiftdrop-api-local
+  Jwt__JwksUri: http://identity-service:8080/.well-known/jwks.json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: merchant-config
+data:
+  ASPNETCORE_ENVIRONMENT: Production
+  DOTNET_ENVIRONMENT: Production
+  Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
+  Delivery__GrpcAddress: http://delivery-service:8081
+  Jwt__Issuer: https://identity.example.invalid
+  Jwt__Audience: swiftdrop-api-local
+  Jwt__JwksUri: http://identity-service:8080/.well-known/jwks.json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notifications-config
+data:
+  ASPNETCORE_ENVIRONMENT: Production
+  DOTNET_ENVIRONMENT: Production
+  Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
+  Broker__Host: rabbitmq
+  Broker__Username: worker_bus
+  Merchant__BaseUrl: http://merchant-service:8080
+  Delivery__BaseUrl: http://delivery-service:8080
+  Jwt__Issuer: https://identity.example.invalid
+  Jwt__JwksUri: http://identity-service:8080/.well-known/jwks.json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+data:
+  ASPNETCORE_ENVIRONMENT: Production
+  DOTNET_ENVIRONMENT: Production
+  Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
+  Web__Origin: https://swiftdrop.local

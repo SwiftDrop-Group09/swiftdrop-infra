@@ -1,0 +1,271 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: identity-service
+  template:
+    metadata:
+      labels:
+        app: identity-service
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: identity
+          image: swiftdrop/identity:local
+          imagePullPolicy: IfNotPresent
+          args: ["SwiftDrop.Identity.Api.dll"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: identity-config
+            - secretRef:
+                name: identity-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: delivery-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: delivery-service
+  template:
+    metadata:
+      labels:
+        app: delivery-service
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: delivery
+          image: swiftdrop/delivery:local
+          imagePullPolicy: IfNotPresent
+          args: ["SwiftDrop.Delivery.Api.dll"]
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: grpc, containerPort: 8081}
+          envFrom:
+            - configMapRef:
+                name: delivery-config
+            - secretRef:
+                name: delivery-secrets
+          env:
+            - name: Broker__Password
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secrets
+                  key: DELIVERY_BROKER_PASSWORD
+            - name: ObjectStore__AccessKey
+              valueFrom:
+                secretKeyRef:
+                  name: object-store-secrets
+                  key: DELIVERY_OBJECT_ACCESS_KEY
+            - name: ObjectStore__SecretKey
+              valueFrom:
+                secretKeyRef:
+                  name: object-store-secrets
+                  key: DELIVERY_OBJECT_SECRET_KEY
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: merchant-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: merchant-service
+  template:
+    metadata:
+      labels:
+        app: merchant-service
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: merchant
+          image: swiftdrop/merchant:local
+          imagePullPolicy: IfNotPresent
+          args: ["SwiftDrop.Merchant.Api.dll"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: merchant-config
+            - secretRef:
+                name: merchant-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-worker
+  template:
+    metadata:
+      labels:
+        app: notification-worker
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: worker
+          image: swiftdrop/notification-worker:local
+          imagePullPolicy: IfNotPresent
+          args: ["SwiftDrop.Notification.Worker.dll"]
+          ports:
+            - name: health
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: notifications-config
+            - secretRef:
+                name: notifications-secrets
+          env:
+            - name: Broker__Password
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secrets
+                  key: WORKER_BROKER_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: gateway
+          image: swiftdrop/gateway:local
+          imagePullPolicy: IfNotPresent
+          args: ["SwiftDrop.Gateway.dll"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gateway-config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: web
+          image: swiftdrop/web:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}

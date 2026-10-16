@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+!.gitignore
+/k8s/secrets/*.env
+*.log

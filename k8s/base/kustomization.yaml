@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: swiftdrop
+resources:
+  - namespace.yaml
+  - configmaps.yaml
+  - app-deployments.yaml
+  - app-services.yaml
+  - stateful-dependencies.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: delivery-private-policy
+    files:
+      - delivery-policy.json=delivery-policy.json
+  - name: rabbitmq-bootstrap
+    files:
+      - bootstrap-users.sh=rabbitmq-bootstrap.sh
+generatorOptions:
+  disableNameSuffixHash: true
