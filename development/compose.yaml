@@ -35,6 +35,14 @@ services:
       timeout: 3s
       retries: 5
 
+  identity-migrate:
+    profiles: ["database-migrations"]
+    image: swiftdrop/identity:dev
+    command: ["SwiftDrop.Identity.Api.dll", "--migrate"]
+    environment:
+      ConnectionStrings__MigrationDatabase: ${IDENTITY_MIGRATION_CONNECTION_STRING:-}
+    restart: "no"
+
   delivery-service:
     image: swiftdrop/delivery:dev
     build:

@@ -51,6 +51,23 @@ initialize_env() {
     chmod 600 "$env_file"
     printf 'Created %s with a generated local RabbitMQ password\n' "$env_file"
   fi
+  chmod 600 "$env_file"
+}
+
+read_optional_env_value() {
+  key=$1
+  value=$(awk -v key="$key" '
+    index($0, key "=") == 1 {
+      print substr($0, length(key) + 2)
+      found = 1
+      exit
+    }
+    END { if (!found) exit 1 }
+  ' "$env_file") || return 0
+  case "$value" in
+    ""|*ep-your-endpoint*|*REPLACE_WITH_*) return 0 ;;
+  esac
+  printf '%s' "$value"
 }
 
 valid_service() {
@@ -162,6 +179,8 @@ esac
 start_host_stack() {
   backend_dir=$(CDPATH= cd -- "$infra_dir/../swiftdrop-backend" && pwd)
   frontend_dir=$(CDPATH= cd -- "$infra_dir/../swiftdrop-frontend" && pwd)
+  identity_connection_string=$(read_optional_env_value IDENTITY_DATABASE_CONNECTION_STRING)
+  identity_migration_connection_string=$(read_optional_env_value IDENTITY_MIGRATION_CONNECTION_STRING)
   log_dir="$script_dir/.logs"
   pids=
 
@@ -191,6 +210,9 @@ start_host_stack() {
       cd "$backend_dir"
       export ASPNETCORE_ENVIRONMENT=Development
       export DOTNET_ENVIRONMENT=Development
+      if [ "$name" = identity-service ]; then
+        export ConnectionStrings__Database="$identity_connection_string"
+      fi
       exec "$@"
     ) > "$log_file" 2>&1 &
     pid=$!
@@ -253,6 +275,18 @@ start_host_stack() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
+  if [ -n "$identity_migration_connection_string" ]; then
+    printf 'Applying Identity database migrations...\n'
+    (
+      cd "$backend_dir"
+      ASPNETCORE_ENVIRONMENT=Development \
+        DOTNET_ENVIRONMENT=Development \
+        ConnectionStrings__MigrationDatabase="$identity_migration_connection_string" \
+        dotnet run --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api -- --migrate
+    )
+  else
+    printf 'Identity DB migration skipped; host startup does not require Neon. DB-backed registration remains unavailable.\n'
+  fi
   start_process identity-service dotnet run --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api
   start_process delivery-service dotnet run --no-launch-profile --project src/Services/Delivery/SwiftDrop.Delivery.Api
   start_process merchant-service dotnet run --no-launch-profile --project src/Services/Merchant/SwiftDrop.Merchant.Api
@@ -279,12 +313,13 @@ start_host_stack() {
   done
 }
 
+initialize_env
+
 if [ "$mode" = host ]; then
   start_host_stack
   exit 0
 fi
 
-initialize_env
 cd "$infra_dir"
 
 compose() {

@@ -35,7 +35,20 @@ Docker mode builds and starts separate containers for Gateway, Identity,
 Delivery, Merchant, Notification Worker, web, and local RabbitMQ. On first
 use, the script copies `development/.env.example` to the ignored
 `development/.env` and generates a local RabbitMQ password. It never
-overwrites an existing configuration.
+overwrites an existing configuration. The default scaffold startup does not
+require Neon credentials: the sample values are enough to run the containers
+and process health checks. Identity's database migration is opt-in through the
+`database-migrations` Compose profile. Database-backed Identity routes remain
+unavailable until a developer privately provisions and configures
+`identity_app` and `identity_migrator` credentials in the ignored `.env`.
+
+Verify the shared baseline without inspecting rendered configuration:
+
+```sh
+./development/run.sh ps
+curl --fail http://localhost:5000/health
+curl --fail http://localhost:5173/
+```
 
 Open `http://localhost:5173`; the Gateway is at `http://localhost:5000`.
 RabbitMQ's local management UI is `http://localhost:15672` (username
@@ -52,11 +65,12 @@ The same script handles common commands and can target one service:
 ./development/run.sh down
 ```
 
-Host mode requires the pinned .NET SDK, Node/npm, and frontend dependencies
-(`npm ci` in `swiftdrop-frontend`). It starts all five backend processes plus
-the Vite frontend using their documented loopback addresses; press Ctrl-C to
-stop only those processes. It does not start RabbitMQ; the current scaffold
-does not connect to the broker.
+Host mode requires the pinned .NET SDK, Node/npm, frontend dependencies
+(`npm ci` in `swiftdrop-frontend`). It starts the backend processes and Vite
+frontend without requiring Neon; press Ctrl-C to stop them. If a valid
+`IDENTITY_MIGRATION_CONNECTION_STRING` is configured, the runner applies the
+Identity migration first. It does not start RabbitMQ; current application
+services do not connect to the broker.
 
 **Docker is still a required team acceptance check.** Developers may use host
 mode day-to-day, but before merging a change that affects an app or its
@@ -77,11 +91,14 @@ the build/run behavior.
 
 ## Scope and status
 
-The backend is currently a scaffold: health endpoints prove process liveness,
-but feature handlers, database/broker/object-store adapters and migrations
-have not been implemented. The Neon connection-string entries in
-`development/.env.example` are placeholders for later service integration;
-the containers do not currently use them. PostgreSQL is not run locally.
+The immediate shared-development milestone is scaffold startup: separate
+service containers, Gateway/web, RabbitMQ, and process health checks. It does
+not depend on Neon or implemented product features. Identity Customer
+registration and its migration are present as an initial feature slice, but
+registration returns service unavailable until its database connection and
+migration are provisioned. Other feature handlers and the Delivery, Merchant,
+and Notifications database/broker adapters remain unimplemented. PostgreSQL
+is managed externally by Neon and is not run locally.
 
 RabbitMQ is included because the approved service design uses a message
 broker, although the current scaffold does not yet connect to it. MinIO is
@@ -96,7 +113,7 @@ Kubernetes manifests are separate from this developer workflow. See
 
 | Blocker | Owner | Exit condition |
 |---|---|---|
-| Docker builds and runtime startup have not been verified in this environment | Infra owner | Run `./development/run.sh up --mode docker --build` on a Docker-enabled machine and record startup results |
-| Neon databases/roles and actual TLS credentials are not provisioned | Infra owner | Provision privately and validate when service database adapters exist |
-| Backend integrations and migrations are not implemented | Backend lead | Implement and test each service's owned DB/broker integration |
+| Neon `identity_migrator` role/permissions and Identity migration/readiness have not yet been validated | Identity/infra owners | Only required when beginning DB-backed Identity feature work; provision the restricted migration role, set its private connection string, run the opt-in migration, and confirm `/ready` plus registration persistence |
+| Delivery, Merchant, and Notifications migrations/adapters are not implemented | Their service owners | Implement the owned schema, migration, data access, and focused tests before that service's first feature |
+| RabbitMQ application publishers/consumers and outbox are not implemented | Delivery/Notifications owners | Exercise a persisted event through broker acknowledgement and consumer deduplication |
 | External Neon may not satisfy the assignment's literal database-container requirement | Project lead | Confirm lecturer acceptance or choose an assignment-compliant database deployment |
