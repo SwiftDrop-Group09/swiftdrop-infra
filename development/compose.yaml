@@ -67,6 +67,14 @@ services:
       timeout: 3s
       retries: 5
 
+  delivery-migrate:
+    profiles: ["database-migrations"]
+    image: swiftdrop/delivery:dev
+    command: ["SwiftDrop.Delivery.Api.dll", "--migrate"]
+    environment:
+      ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
+    restart: "no"
+
   merchant-service:
     image: swiftdrop/merchant:dev
     build:
