@@ -10,6 +10,7 @@ data:
   Jwt__Audience: swiftdrop-api-local
   Google__WebClientId: REPLACE_WITH_WEB_CLIENT_ID
   Google__AndroidClientId: REPLACE_WITH_ANDROID_CLIENT_ID
+  Identity__Browser__AllowedOrigins__0: https://app.swiftdrop.example.com
 ---
 apiVersion: v1
 kind: ConfigMap
