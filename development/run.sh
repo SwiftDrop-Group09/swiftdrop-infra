@@ -59,6 +59,17 @@ initialize_env() {
     printf 'Created %s with a generated local RabbitMQ password\n' "$env_file"
   fi
   chmod 600 "$env_file"
+
+  if [ ! -f /tmp/swiftdrop/identity/development.pem ]; then
+    if ! command -v openssl >/dev/null 2>&1; then
+      printf 'openssl is required to generate a local Identity development signing key\n' >&2
+      exit 1
+    fi
+    mkdir -p /tmp/swiftdrop/identity
+    chmod 700 /tmp/swiftdrop/identity
+    openssl genpkey -algorithm RSA -out /tmp/swiftdrop/identity/development.pem -pkeyopt rsa_keygen_bits:3072 >/dev/null 2>&1
+    chmod 600 /tmp/swiftdrop/identity/development.pem
+  fi
 }
 
 read_optional_env_value() {

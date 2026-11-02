@@ -23,7 +23,14 @@ services:
       dockerfile: Dockerfile
       args:
         PROJECT_FILE: src/Services/Identity/SwiftDrop.Identity.Api/SwiftDrop.Identity.Api.csproj
-    command: ["SwiftDrop.Identity.Api.dll"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        if [ ! -f /tmp/swiftdrop/identity/development.pem ]; then
+          mkdir -p /tmp/swiftdrop/identity &&
+          dotnet SwiftDrop.Identity.Api.dll --generate-development-key;
+        fi &&
+        exec dotnet SwiftDrop.Identity.Api.dll
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       DOTNET_ENVIRONMENT: Development
@@ -43,6 +50,9 @@ services:
     networks:
       default:
         ipv4_address: 172.28.0.2
+    volumes:
+      - identity-keys:/tmp/swiftdrop/identity
+      - identity-dataprotection:/root/.aspnet/DataProtection-Keys
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 10s
@@ -193,3 +203,5 @@ networks:
 
 volumes:
   rabbitmq-data:
+  identity-dataprotection:
+  identity-keys:
