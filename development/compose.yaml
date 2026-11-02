@@ -25,14 +25,15 @@ services:
         PROJECT_FILE: src/Services/Identity/SwiftDrop.Identity.Api/SwiftDrop.Identity.Api.csproj
     command: ["SwiftDrop.Identity.Api.dll"]
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      DOTNET_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_ENVIRONMENT: Development
       Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
       ConnectionStrings__Database: ${IDENTITY_DATABASE_CONNECTION_STRING:-}
       Identity__Browser__AllowedOrigins__0: http://localhost:5173
       Identity__Browser__AllowedOrigins__1: http://127.0.0.1:5173
       Identity__Browser__AllowedOrigins__2: http://localhost:5000
       Identity__Browser__AllowedOrigins__3: http://127.0.0.1:5000
+      Identity__Google__WebClientIds__0: ${IDENTITY_GOOGLE_WEB_CLIENT_ID:-}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 10s
@@ -157,6 +158,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: /api
+        VITE_GOOGLE_WEB_CLIENT_ID: ${VITE_GOOGLE_WEB_CLIENT_ID:-}
     ports:
       - "127.0.0.1:5173:8080"
     volumes:
