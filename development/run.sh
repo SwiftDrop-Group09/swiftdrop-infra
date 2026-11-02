@@ -11,6 +11,7 @@ usage() {
   cat <<'EOF'
 Usage:
   development/run.sh up [--mode docker|host] [--build] [service]
+  development/run.sh migrate [--mode docker|host] identity-service|delivery-service
   development/run.sh build [service]              # Docker image build
   development/run.sh down|ps|logs|config          # Docker Compose
 
@@ -19,6 +20,7 @@ Services: rabbitmq, identity-service, delivery-service, merchant-service,
 
 Docker is the default mode. Host mode starts backend and frontend processes
 directly; stop with Ctrl-C. Docker build/start is required before PR merge.
+Migrations are explicit one-shot tasks; up never applies database migrations.
 EOF
 }
 
@@ -26,6 +28,11 @@ initialize_env() {
   if [ ! -f "$env_file" ]; then
     cp "$example_file" "$env_file"
     chmod 600 "$env_file"
+  fi
+
+  if [ -n "${RABBITMQ_DEFAULT_PASS:-}" ]; then
+    chmod 600 "$env_file"
+    return
   fi
 
   if ! grep -Eq '^RABBITMQ_DEFAULT_PASS=.+$' "$env_file" \
@@ -56,18 +63,54 @@ initialize_env() {
 
 read_optional_env_value() {
   key=$1
-  value=$(awk -v key="$key" '
+  # CI/private shell inputs override the ignored local file, as with Compose.
+  # Avoid sourcing/evaluating connection strings as shell code.
+  case "$key" in
+    IDENTITY_DATABASE_CONNECTION_STRING)
+      value=${IDENTITY_DATABASE_CONNECTION_STRING-}
+      present=${IDENTITY_DATABASE_CONNECTION_STRING+1}
+      ;;
+    DELIVERY_DATABASE_CONNECTION_STRING)
+      value=${DELIVERY_DATABASE_CONNECTION_STRING-}
+      present=${DELIVERY_DATABASE_CONNECTION_STRING+1}
+      ;;
+    MERCHANT_DATABASE_CONNECTION_STRING)
+      value=${MERCHANT_DATABASE_CONNECTION_STRING-}
+      present=${MERCHANT_DATABASE_CONNECTION_STRING+1}
+      ;;
+    NOTIFICATIONS_DATABASE_CONNECTION_STRING)
+      value=${NOTIFICATIONS_DATABASE_CONNECTION_STRING-}
+      present=${NOTIFICATIONS_DATABASE_CONNECTION_STRING+1}
+      ;;
+    IDENTITY_MIGRATION_CONNECTION_STRING)
+      value=${IDENTITY_MIGRATION_CONNECTION_STRING-}
+      present=${IDENTITY_MIGRATION_CONNECTION_STRING+1}
+      ;;
+    *) return 1 ;;
+  esac
+  if [ -z "$present" ]; then
+    value=$(awk -v key="$key" '
+    { sub(/\r$/, "") }
     index($0, key "=") == 1 {
       print substr($0, length(key) + 2)
       found = 1
       exit
     }
     END { if (!found) exit 1 }
-  ' "$env_file") || return 0
+    ' "$env_file") || return 0
+  fi
   case "$value" in
-    ""|*ep-your-endpoint*|*REPLACE_WITH_*) return 0 ;;
+    ""|*ep-your-endpoint*|*REPLACE_*) return 0 ;;
   esac
   printf '%s' "$value"
+}
+
+clear_child_secrets() {
+  # A caller may export all six inputs. Give each app only its owning setting.
+  unset RABBITMQ_DEFAULT_PASS IDENTITY_DATABASE_CONNECTION_STRING \
+    DELIVERY_DATABASE_CONNECTION_STRING MERCHANT_DATABASE_CONNECTION_STRING \
+    NOTIFICATIONS_DATABASE_CONNECTION_STRING IDENTITY_MIGRATION_CONNECTION_STRING \
+    ConnectionStrings__Database ConnectionStrings__MigrationDatabase
 }
 
 valid_service() {
@@ -162,13 +205,14 @@ if [ "$build" -eq 1 ] && [ "$mode" != docker ]; then
   exit 2
 fi
 
-if [ "$mode" = host ] && { [ "$action" != up ] || [ -n "$service" ]; }; then
-  printf '%s\n' 'Host mode supports only "up" for the full local app stack; stop it with Ctrl-C.' >&2
+if [ "$mode" = host ] && [ "$action" != migrate ] \
+  && { [ "$action" != up ] || [ -n "$service" ]; }; then
+  printf '%s\n' 'Host mode supports full-stack "up" and explicit "migrate"; stop apps with Ctrl-C.' >&2
   exit 2
 fi
 
 case "$action" in
-  up|build|down|ps|logs|config) ;;
+  up|build|down|ps|logs|config|migrate) ;;
   *)
     printf 'Unknown command: %s\n' "$action" >&2
     usage >&2
@@ -176,11 +220,55 @@ case "$action" in
     ;;
 esac
 
+if [ "$action" = migrate ]; then
+  case "$service" in
+    identity-service|delivery-service) ;;
+    *)
+      printf '%s\n' 'migrate requires identity-service or delivery-service' >&2
+      exit 2
+      ;;
+  esac
+fi
+
+run_host_migration() {
+  backend_dir=$(CDPATH= cd -- "$infra_dir/../swiftdrop-backend" && pwd)
+  case "$service" in
+    identity-service)
+      migration_connection=$(read_optional_env_value IDENTITY_MIGRATION_CONNECTION_STRING)
+      migration_setting=ConnectionStrings__MigrationDatabase
+      migration_project=src/Services/Identity/SwiftDrop.Identity.Api
+      ;;
+    delivery-service)
+      migration_connection=$(read_optional_env_value DELIVERY_DATABASE_CONNECTION_STRING)
+      migration_setting=ConnectionStrings__Database
+      migration_project=src/Services/Delivery/SwiftDrop.Delivery.Api
+      ;;
+  esac
+  if [ -z "$migration_connection" ]; then
+    printf 'Configure the owning migration connection before migrating %s\n' "$service" >&2
+    exit 1
+  fi
+  if ! command -v dotnet >/dev/null 2>&1; then
+    printf 'Host migrations require the .NET SDK pinned by backend/global.json\n' >&2
+    exit 1
+  fi
+  printf 'Applying %s database migrations...\n' "$service"
+  (
+    cd "$backend_dir"
+    clear_child_secrets
+    export ASPNETCORE_ENVIRONMENT=Development DOTNET_ENVIRONMENT=Development
+    export "$migration_setting=$migration_connection"
+    exec dotnet run --no-launch-profile --project "$migration_project" -- --migrate
+  )
+}
+
 start_host_stack() {
   backend_dir=$(CDPATH= cd -- "$infra_dir/../swiftdrop-backend" && pwd)
   frontend_dir=$(CDPATH= cd -- "$infra_dir/../swiftdrop-frontend" && pwd)
   identity_connection_string=$(read_optional_env_value IDENTITY_DATABASE_CONNECTION_STRING)
-  identity_migration_connection_string=$(read_optional_env_value IDENTITY_MIGRATION_CONNECTION_STRING)
+  delivery_connection_string=$(read_optional_env_value DELIVERY_DATABASE_CONNECTION_STRING)
+  merchant_connection_string=$(read_optional_env_value MERCHANT_DATABASE_CONNECTION_STRING)
+  notifications_connection_string=$(read_optional_env_value NOTIFICATIONS_DATABASE_CONNECTION_STRING)
   log_dir="$script_dir/.logs"
   pids=
 
@@ -208,11 +296,15 @@ start_host_stack() {
     shift
     (
       cd "$backend_dir"
+      clear_child_secrets
       export ASPNETCORE_ENVIRONMENT=Development
       export DOTNET_ENVIRONMENT=Development
-      if [ "$name" = identity-service ]; then
-        export ConnectionStrings__Database="$identity_connection_string"
-      fi
+      case "$name" in
+        identity-service) export ConnectionStrings__Database="$identity_connection_string" ;;
+        delivery-service) export ConnectionStrings__Database="$delivery_connection_string" ;;
+        merchant-service) export ConnectionStrings__Database="$merchant_connection_string" ;;
+        notification-worker) export ConnectionStrings__Database="$notifications_connection_string" ;;
+      esac
       exec "$@"
     ) > "$log_file" 2>&1 &
     pid=$!
@@ -231,6 +323,7 @@ start_host_stack() {
     log_file="$log_dir/web.log"
     (
       cd "$frontend_dir"
+      clear_child_secrets
       exec ./node_modules/.bin/react-router dev --host 127.0.0.1
     ) > "$log_file" 2>&1 &
     pid=$!
@@ -275,18 +368,6 @@ start_host_stack() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
-  if [ -n "$identity_migration_connection_string" ]; then
-    printf 'Applying Identity database migrations...\n'
-    (
-      cd "$backend_dir"
-      ASPNETCORE_ENVIRONMENT=Development \
-        DOTNET_ENVIRONMENT=Development \
-        ConnectionStrings__MigrationDatabase="$identity_migration_connection_string" \
-        dotnet run --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api -- --migrate
-    )
-  else
-    printf 'Identity DB migration skipped; host startup does not require Neon. DB-backed registration remains unavailable.\n'
-  fi
   start_process identity-service dotnet run --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api
   start_process delivery-service dotnet run --no-launch-profile --project src/Services/Delivery/SwiftDrop.Delivery.Api
   start_process merchant-service dotnet run --no-launch-profile --project src/Services/Merchant/SwiftDrop.Merchant.Api
@@ -316,7 +397,11 @@ start_host_stack() {
 initialize_env
 
 if [ "$mode" = host ]; then
-  start_host_stack
+  if [ "$action" = migrate ]; then
+    run_host_migration
+  else
+    start_host_stack
+  fi
   exit 0
 fi
 
@@ -327,6 +412,13 @@ compose() {
 }
 
 case "$action" in
+  migrate)
+    case "$service" in
+      identity-service) migration_task=identity-migrate ;;
+      delivery-service) migration_task=delivery-migrate ;;
+    esac
+    compose --profile database-migrations run --rm --no-deps "$migration_task"
+    ;;
   up)
     if [ "$build" -eq 1 ]; then
       if [ -n "$service" ]; then
