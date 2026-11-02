@@ -31,6 +31,8 @@ modes are available through the same script. Start from `swiftdrop-infra`:
 ./development/run.sh up --mode docker --build
 ```
 
+> **Windows users**: Run `development\run.bat up --mode docker --build` in Command Prompt / PowerShell, or run `./development/run.sh` in Git Bash / WSL.
+
 Docker mode builds and starts separate containers for Gateway, Identity,
 Delivery, Merchant, Notification Worker, web, and local RabbitMQ. On first
 use, the script copies `development/.env.example` to the ignored
@@ -82,14 +84,14 @@ override the file in both host and Docker mode. Use Npgsql connection strings
 with the provisioned Neon endpoint, TLS settings, role and owning database;
 the examples contain placeholders only.
 
-| Secret | Recipient / use |
-|---|---|
-| `RABBITMQ_DEFAULT_PASS` | RabbitMQ administrator only, never application workloads |
-| `IDENTITY_DATABASE_CONNECTION_STRING` | Identity `ConnectionStrings__Database`, database `swiftdrop_identity` |
-| `DELIVERY_DATABASE_CONNECTION_STRING` | Delivery `ConnectionStrings__Database`, database `swiftdrop_delivery`; also the explicit Delivery migration task |
-| `MERCHANT_DATABASE_CONNECTION_STRING` | Merchant `ConnectionStrings__Database`, database `swiftdrop_merchant` |
-| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker `ConnectionStrings__Database`, database `swiftdrop_notifications` |
-| `IDENTITY_MIGRATION_CONNECTION_STRING` | Explicit Identity task's `ConnectionStrings__MigrationDatabase`, database `swiftdrop_identity` |
+| Secret                                       | Recipient / use                                                                                                      |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `RABBITMQ_DEFAULT_PASS`                    | RabbitMQ administrator only, never application workloads                                                             |
+| `IDENTITY_DATABASE_CONNECTION_STRING`      | Identity `ConnectionStrings__Database`, database `swiftdrop_identity`                                            |
+| `DELIVERY_DATABASE_CONNECTION_STRING`      | Delivery `ConnectionStrings__Database`, database `swiftdrop_delivery`; also the explicit Delivery migration task |
+| `MERCHANT_DATABASE_CONNECTION_STRING`      | Merchant `ConnectionStrings__Database`, database `swiftdrop_merchant`                                            |
+| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker `ConnectionStrings__Database`, database `swiftdrop_notifications`                            |
+| `IDENTITY_MIGRATION_CONNECTION_STRING`     | Explicit Identity task's `ConnectionStrings__MigrationDatabase`, database `swiftdrop_identity`                   |
 
 Review the backend's generated migration SQL before applying it to a shared
 database. Provision the roles and permissions privately; the runner creates no
@@ -173,9 +175,9 @@ validation. They do not start or migrate the shared stack.
 
 ## Remaining blockers
 
-| Blocker | Owner | Exit condition |
-|---|---|---|
-| Provisioned Neon roles, schema privileges and database-backed readiness have not been verified | Service/infra owners | Privately validate owning-role permissions, run each explicit migration after SQL review, and verify persistence; no live Neon validation is claimed by this repository |
-| Merchant and Notifications migrations/adapters are not implemented | Their service owners | Implement the owned schema, migration, data access, and focused tests before that service's first feature |
-| Delivery quote/booking handlers, RabbitMQ publishers/consumers and outbox relay are not implemented | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication |
-| Container acceptance remains separate from static and host checks | App/infra owners | Run Docker image build/start and record Gateway/web and container health before merge |
+| Blocker                                                                                             | Owner                         | Exit condition                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provisioned Neon roles, schema privileges and database-backed readiness have not been verified      | Service/infra owners          | Privately validate owning-role permissions, run each explicit migration after SQL review, and verify persistence; no live Neon validation is claimed by this repository |
+| Merchant and Notifications migrations/adapters are not implemented                                  | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
+| Delivery quote/booking handlers, RabbitMQ publishers/consumers and outbox relay are not implemented | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
+| Container acceptance remains separate from static and host checks                                   | App/infra owners              | Run Docker image build/start and record Gateway/web and container health before merge                                                                                   |
