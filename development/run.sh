@@ -97,6 +97,30 @@ read_optional_env_value() {
       value=${IDENTITY_MIGRATION_CONNECTION_STRING-}
       present=${IDENTITY_MIGRATION_CONNECTION_STRING+1}
       ;;
+    DELIVERY_PROOF_STORAGE_ENDPOINT)
+      value=${DELIVERY_PROOF_STORAGE_ENDPOINT-}
+      present=${DELIVERY_PROOF_STORAGE_ENDPOINT+1}
+      ;;
+    DELIVERY_PROOF_STORAGE_BUCKET)
+      value=${DELIVERY_PROOF_STORAGE_BUCKET-}
+      present=${DELIVERY_PROOF_STORAGE_BUCKET+1}
+      ;;
+    DELIVERY_PROOF_STORAGE_REGION)
+      value=${DELIVERY_PROOF_STORAGE_REGION-}
+      present=${DELIVERY_PROOF_STORAGE_REGION+1}
+      ;;
+    DELIVERY_PROOF_STORAGE_ACCESS_KEY)
+      value=${DELIVERY_PROOF_STORAGE_ACCESS_KEY-}
+      present=${DELIVERY_PROOF_STORAGE_ACCESS_KEY+1}
+      ;;
+    DELIVERY_PROOF_STORAGE_SECRET_KEY)
+      value=${DELIVERY_PROOF_STORAGE_SECRET_KEY-}
+      present=${DELIVERY_PROOF_STORAGE_SECRET_KEY+1}
+      ;;
+    DELIVERY_PROOF_STORAGE_SESSION_TOKEN)
+      value=${DELIVERY_PROOF_STORAGE_SESSION_TOKEN-}
+      present=${DELIVERY_PROOF_STORAGE_SESSION_TOKEN+1}
+      ;;
     *) return 1 ;;
   esac
   if [ -z "$present" ]; then
@@ -121,7 +145,14 @@ clear_child_secrets() {
   unset RABBITMQ_DEFAULT_PASS IDENTITY_DATABASE_CONNECTION_STRING \
     DELIVERY_DATABASE_CONNECTION_STRING MERCHANT_DATABASE_CONNECTION_STRING \
     NOTIFICATIONS_DATABASE_CONNECTION_STRING IDENTITY_MIGRATION_CONNECTION_STRING \
-    ConnectionStrings__Database ConnectionStrings__MigrationDatabase
+    ConnectionStrings__Database ConnectionStrings__MigrationDatabase \
+    DELIVERY_PROOF_STORAGE_ENDPOINT \
+    DELIVERY_PROOF_STORAGE_BUCKET \
+    DELIVERY_PROOF_STORAGE_REGION \
+    DELIVERY_PROOF_STORAGE_ACCESS_KEY \
+    DELIVERY_PROOF_STORAGE_SECRET_KEY \
+    DELIVERY_PROOF_STORAGE_SESSION_TOKEN \
+    ProofStorage__Endpoint ProofStorage__Bucket ProofStorage__Region ProofStorage__AccessKey ProofStorage__SecretKey ProofStorage__SessionToken
 }
 
 valid_service() {
@@ -315,12 +346,26 @@ start_host_stack() {
     shift
     (
       cd "$backend_dir"
+      proof_endpoint=$(read_optional_env_value DELIVERY_PROOF_STORAGE_ENDPOINT)
+      proof_bucket=$(read_optional_env_value DELIVERY_PROOF_STORAGE_BUCKET)
+      proof_region=$(read_optional_env_value DELIVERY_PROOF_STORAGE_REGION)
+      proof_access_key=$(read_optional_env_value DELIVERY_PROOF_STORAGE_ACCESS_KEY)
+      proof_secret_key=$(read_optional_env_value DELIVERY_PROOF_STORAGE_SECRET_KEY)
+      proof_session_token=$(read_optional_env_value DELIVERY_PROOF_STORAGE_SESSION_TOKEN)
       clear_child_secrets
       export ASPNETCORE_ENVIRONMENT=Development
       export DOTNET_ENVIRONMENT=Development
       case "$name" in
         identity-service) export ConnectionStrings__Database="$identity_connection_string" ;;
-        delivery-service) export ConnectionStrings__Database="$delivery_connection_string" ;;
+        delivery-service)
+          export ConnectionStrings__Database="$delivery_connection_string"
+          export ProofStorage__Endpoint="$proof_endpoint"
+          export ProofStorage__Bucket="$proof_bucket"
+          export ProofStorage__Region="$proof_region"
+          export ProofStorage__AccessKey="$proof_access_key"
+          export ProofStorage__SecretKey="$proof_secret_key"
+          export ProofStorage__SessionToken="$proof_session_token"
+          ;;
         merchant-service) export ConnectionStrings__Database="$merchant_connection_string" ;;
         notification-worker) export ConnectionStrings__Database="$notifications_connection_string" ;;
       esac

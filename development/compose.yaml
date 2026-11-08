@@ -82,6 +82,12 @@ services:
       Kestrel__Endpoints__Grpc__Url: http://0.0.0.0:8081
       ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
       Operations__TimeZone: Asia/Colombo
+      ProofStorage__Endpoint: ${DELIVERY_PROOF_STORAGE_ENDPOINT:-}
+      ProofStorage__Bucket: ${DELIVERY_PROOF_STORAGE_BUCKET:-}
+      ProofStorage__Region: ${DELIVERY_PROOF_STORAGE_REGION:-}
+      ProofStorage__AccessKey: ${DELIVERY_PROOF_STORAGE_ACCESS_KEY:-}
+      ProofStorage__SecretKey: ${DELIVERY_PROOF_STORAGE_SECRET_KEY:-}
+      ProofStorage__SessionToken: ${DELIVERY_PROOF_STORAGE_SESSION_TOKEN:-}
     depends_on:
       rabbitmq:
         condition: service_healthy
