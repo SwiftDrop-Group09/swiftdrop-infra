@@ -139,24 +139,24 @@ the build/run behavior.
 
 ## Scope and status
 
-The immediate shared-development milestone is scaffold startup: separate
-service containers, Gateway/web, RabbitMQ, and process health checks. It does
-not depend on Neon or implemented product features. Identity Customer
-registration and its migration are present as an initial feature slice, but
-registration returns service unavailable until its database connection and
-migration are provisioned. Delivery Phase 1 includes its booking domain,
-PostgreSQL persistence, initial migration and transactional outbox storage;
-quote/booking handlers and the broker relay remain later work. Merchant and
-Notifications database/broker adapters remain unimplemented. PostgreSQL is
-managed externally by Neon; the shared stack has no PostgreSQL container.
-Backend persistence tests use an isolated disposable PostgreSQL cluster, not
-the team's Neon database.
+The default integration branch is `dev` in all five repositories. Identity
+registration/login/profile connections, Delivery quotes/booking/courier handlers,
+and the Merchant onboarding/key persistence slice are present. Real routes still
+require owning Neon schemas and authentication integration; Delivery and Merchant
+currently use fail-closed IAM seams. Process liveness is not feature readiness.
+Notifications persistence and the RabbitMQ relay/consumers remain deferred.
 
-RabbitMQ is included because the documented service design uses a message
-broker, although the current scaffold does not yet connect to it. MinIO is
-not part of the everyday development stack; add object storage when Delivery's
-proof upload adapter is implemented. This keeps the initial run command to
-the services and dependency needed for the current shared baseline.
+Courier completion also needs a privately provisioned S3-compatible bucket. Set
+`DELIVERY_PROOF_STORAGE_ENDPOINT`, `BUCKET`, `REGION`, `ACCESS_KEY`, `SECRET_KEY`
+and optional `SESSION_TOKEN` with that common prefix in ignored
+`development/.env` or exported variables. Both host and Docker modes map them
+only to Delivery's `ProofStorage__*` settings. The adapter requires owner-only
+ACLs, no resource-policy Allow and server-side encryption. Missing storage
+configuration fails completion without committing Delivered. No shared MinIO
+container or automatic bucket provisioning is introduced.
+
+The six database/broker names remain unchanged. No real Neon or bucket migration
+is performed by runner tests; they use synthetic inputs and disposable fixtures.
 
 Kubernetes manifests are separate from this developer workflow. See
 `k8s/` for that optional baseline; it has not been runtime-tested and still
@@ -178,6 +178,6 @@ validation. They do not start or migrate the shared stack.
 | Blocker                                                                                             | Owner                         | Exit condition                                                                                                                                                          |
 | --------------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provisioned Neon roles, schema privileges and database-backed readiness have not been verified      | Service/infra owners          | Privately validate owning-role permissions, run each explicit migration after SQL review, and verify persistence; no live Neon validation is claimed by this repository |
-| Merchant and Notifications migrations/adapters are not implemented                                  | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
-| Delivery quote/booking handlers, RabbitMQ publishers/consumers and outbox relay are not implemented | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
+| Merchant human-token integration and Notifications persistence remain incomplete                                  | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
+| RabbitMQ publishers/consumers and outbox relay remain unimplemented | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
 | Container acceptance remains separate from static and host checks                                   | App/infra owners              | Run Docker image build/start and record Gateway/web and container health before merge                                                                                   |

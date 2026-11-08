@@ -149,6 +149,28 @@ class RunnerTests(unittest.TestCase):
             self.assertIn("--no-build", arguments)
             self.assertIn("--no-restore", arguments)
 
+    def test_proof_storage_is_delivery_only_and_export_overrides_file(self):
+        mapping = {
+            "ENDPOINT": "Endpoint", "BUCKET": "Bucket", "REGION": "Region",
+            "ACCESS_KEY": "AccessKey", "SECRET_KEY": "SecretKey", "SESSION_TOKEN": "SessionToken",
+        }
+        with self.env_file.open("a", encoding="utf-8") as local:
+            for suffix in mapping:
+                local.write(f"DELIVERY_PROOF_STORAGE_{suffix}=file-{suffix}\n")
+                self.environment[f"DELIVERY_PROOF_STORAGE_{suffix}"] = f"export-{suffix}"
+                self.environment[f"ProofStorage__{mapping[suffix]}"] = "stale-unscoped"
+        self.original_env = self.env_file.read_bytes()
+        self.run_runner("up", "--mode", "host")
+        for name in ("SwiftDrop.Identity.Api", "SwiftDrop.Delivery.Api", "SwiftDrop.Merchant.Api",
+                     "SwiftDrop.Notification.Worker", "SwiftDrop.Gateway", "web", "build"):
+            values = self.process_environment(name)
+            for suffix, setting in mapping.items():
+                self.assertNotIn(f"DELIVERY_PROOF_STORAGE_{suffix}", values)
+                if name == "SwiftDrop.Delivery.Api":
+                    self.assertEqual(f"export-{suffix}", values[f"ProofStorage__{setting}"])
+                else:
+                    self.assertNotIn(f"ProofStorage__{setting}", values)
+
     def test_failed_host_build_starts_no_processes(self):
         self.environment["MOCK_BUILD_EXIT"] = "7"
         result = self.run_runner("up", "--mode", "host")
