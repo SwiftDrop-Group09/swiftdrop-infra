@@ -300,6 +300,14 @@ start_host_stack() {
     exit 1
   fi
 
+  # Build the shared project graph once before launching concurrent hosts.
+  # Parallel dotnet run builds can race when writing SwiftDrop.Contracts.dll.
+  (
+    cd "$backend_dir"
+    clear_child_secrets
+    dotnet build SwiftDrop.sln --configuration Debug
+  )
+
   mkdir -p "$log_dir"
   start_process() {
     name=$1
@@ -379,11 +387,11 @@ start_host_stack() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
-  start_process identity-service dotnet run --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api
-  start_process delivery-service dotnet run --no-launch-profile --project src/Services/Delivery/SwiftDrop.Delivery.Api
-  start_process merchant-service dotnet run --no-launch-profile --project src/Services/Merchant/SwiftDrop.Merchant.Api
-  start_process notification-worker dotnet run --no-launch-profile --project src/Workers/SwiftDrop.Notification.Worker
-  start_process gateway dotnet run --no-launch-profile --project src/Gateway/SwiftDrop.Gateway
+  start_process identity-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api
+  start_process delivery-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Delivery/SwiftDrop.Delivery.Api
+  start_process merchant-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Merchant/SwiftDrop.Merchant.Api
+  start_process notification-worker dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Workers/SwiftDrop.Notification.Worker
+  start_process gateway dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Gateway/SwiftDrop.Gateway
   start_frontend
   check_health identity-service http://127.0.0.2:8080/health "$identity_pid"
   check_health delivery-service http://127.0.0.3:8080/health "$delivery_pid"

@@ -71,6 +71,13 @@ class RunnerTests(unittest.TestCase):
         self.write_tool(
             "dotnet",
             'arguments=$(printf "%s\\n" "$@")\n'
+            'if [ "$1" = build ]; then\n'
+            '  printf "%s\\n" "$arguments" >> "$MOCK_CALLS/build.args"\n'
+            '  env > "$MOCK_CALLS/build.env"\n'
+            '  exit "${MOCK_BUILD_EXIT:-0}"\n'
+            'fi\n'
+            '[ -f "$MOCK_CALLS/build.args" ] || [ "$1" != run ] || '
+            'case "$arguments" in *--migrate*) true ;; *) exit 9 ;; esac\n'
             'while [ "$#" -gt 0 ]; do\n'
             '  if [ "$1" = --project ]; then shift; project=$1; fi\n'
             '  shift\n'
@@ -133,6 +140,20 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn("--migrate", (self.calls / f"{name}.args").read_text())
         self.assert_scoped("SwiftDrop.Gateway")
         self.assert_scoped("web")
+        self.assert_scoped("build")
+        build_args = (self.calls / "build.args").read_text().splitlines()
+        self.assertEqual(["build", "SwiftDrop.sln", "--configuration", "Debug"], build_args)
+        for name in ("SwiftDrop.Identity.Api", "SwiftDrop.Delivery.Api",
+                     "SwiftDrop.Merchant.Api", "SwiftDrop.Notification.Worker", "SwiftDrop.Gateway"):
+            arguments = (self.calls / f"{name}.args").read_text().splitlines()
+            self.assertIn("--no-build", arguments)
+            self.assertIn("--no-restore", arguments)
+
+    def test_failed_host_build_starts_no_processes(self):
+        self.environment["MOCK_BUILD_EXIT"] = "7"
+        result = self.run_runner("up", "--mode", "host")
+        self.assertEqual(7, result.returncode, result.stdout)
+        self.assertEqual(["build.env"], sorted(path.name for path in self.calls.glob("*.env")))
 
     def test_delivery_host_migration_receives_only_delivery_database(self):
         result = self.run_runner("migrate", "--mode", "host", "delivery-service")
