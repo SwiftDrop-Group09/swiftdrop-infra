@@ -11,7 +11,7 @@ usage() {
   cat <<'EOF'
 Usage:
   development/run.sh up [--mode docker|host] [--watch] [--build] [service]
-  development/run.sh migrate [--mode docker|host] identity-service|delivery-service
+  development/run.sh migrate [--mode docker|host] identity-service|delivery-service|merchant-service
   development/run.sh build [service]              # Docker image build
   development/run.sh down|ps|logs|config          # Docker Compose
 
@@ -98,6 +98,10 @@ read_optional_env_value() {
     IDENTITY_MIGRATION_CONNECTION_STRING)
       value=${IDENTITY_MIGRATION_CONNECTION_STRING-}
       present=${IDENTITY_MIGRATION_CONNECTION_STRING+1}
+      ;;
+    MERCHANT_MIGRATION_CONNECTION_STRING)
+      value=${MERCHANT_MIGRATION_CONNECTION_STRING-}
+      present=${MERCHANT_MIGRATION_CONNECTION_STRING+1}
       ;;
     DELIVERY_PROOF_STORAGE_ENDPOINT)
       value=${DELIVERY_PROOF_STORAGE_ENDPOINT-}
@@ -275,9 +279,9 @@ esac
 
 if [ "$action" = migrate ]; then
   case "$service" in
-    identity-service|delivery-service) ;;
+    identity-service|delivery-service|merchant-service) ;;
     *)
-      printf '%s\n' 'migrate requires identity-service or delivery-service' >&2
+      printf '%s\n' 'migrate requires identity-service, delivery-service, or merchant-service' >&2
       exit 2
       ;;
   esac
@@ -295,6 +299,12 @@ run_host_migration() {
       migration_connection=$(read_optional_env_value DELIVERY_DATABASE_CONNECTION_STRING)
       migration_setting=ConnectionStrings__Database
       migration_project=src/Services/Delivery/SwiftDrop.Delivery.Api
+      ;;
+    merchant-service)
+      migration_connection=$(read_optional_env_value MERCHANT_MIGRATION_CONNECTION_STRING)
+      [ -z "$migration_connection" ] && migration_connection=$(read_optional_env_value MERCHANT_DATABASE_CONNECTION_STRING)
+      migration_setting=ConnectionStrings__Database
+      migration_project=src/Services/Merchant/SwiftDrop.Merchant.Api
       ;;
   esac
   if [ -z "$migration_connection" ]; then
@@ -377,7 +387,12 @@ start_host_stack() {
           export ProofStorage__SecretKey="$proof_secret_key"
           export ProofStorage__SessionToken="$proof_session_token"
           ;;
-        merchant-service) export ConnectionStrings__Database="$merchant_connection_string" ;;
+        merchant-service)
+          export ConnectionStrings__Database="$merchant_connection_string"
+          export Identity__Tokens__Issuer="https://identity.swiftdrop.invalid"
+          export Identity__Tokens__Audience="swiftdrop-api-local"
+          export Identity__Tokens__JwksUrl="http://127.0.0.2:8080/.well-known/jwks.json"
+          ;;
         notification-worker) export ConnectionStrings__Database="$notifications_connection_string" ;;
       esac
       exec "$@"
