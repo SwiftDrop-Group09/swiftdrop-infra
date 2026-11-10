@@ -121,6 +121,9 @@ services:
       DOTNET_ENVIRONMENT: Production
       Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
       ConnectionStrings__Database: ${MERCHANT_DATABASE_CONNECTION_STRING:-}
+      Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
+      Identity__Tokens__Audience: swiftdrop-api-local
+      Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
     depends_on:
       delivery-service:
         condition: service_healthy
