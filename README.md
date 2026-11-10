@@ -12,12 +12,12 @@ the two root Compose entry points with each other.
 
 ## Prerequisites
 
-| Tool | Needed for |
-| ---- | ---------- |
-| Docker Desktop (running) | Docker mode (default, and required before merging) |
-| .NET 10 SDK (pinned by `swiftdrop-backend/global.json`) | Host mode and host migrations |
-| Node.js / npm (pinned by `swiftdrop-frontend/.nvmrc`) and `npm ci` run once in `swiftdrop-frontend` | Host mode |
-| `curl` | Host mode health checks and the verification commands below |
+| Tool                                                                                                      | Needed for                                                  |
+| --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Docker Desktop (running)                                                                                  | Docker mode (default, and required before merging)          |
+| .NET 10 SDK (pinned by `swiftdrop-backend/global.json`)                                                 | Host mode and host migrations                               |
+| Node.js / npm (pinned by `swiftdrop-frontend/.nvmrc`) and `npm ci` run once in `swiftdrop-frontend` | Host mode                                                   |
+| `curl`                                                                                                  | Host mode health checks and the verification commands below |
 
 Windows users need PowerShell 5.1+ (included with Windows) because `run.bat`
 uses it to generate the local RabbitMQ password. `run.sh` needs a POSIX shell
@@ -95,18 +95,18 @@ take up to a minute after `up` returns before their health checks pass.
 The runner handles the common commands and can target one service. Replace
 `./development/run.sh` with `development\run.bat` on Windows.
 
-| Command | What it does |
-| ------- | ------------ |
-| `up --mode docker --build` | Build images and start the whole stack (default mode is `docker`) |
-| `up` | Start the stack using existing images (no rebuild) |
-| `up --build delivery-service` | Rebuild and start one service |
-| `up --mode host` | Run the backend and frontend directly on your machine |
-| `build [service]` | Build images only |
-| `ps` | Show container status |
-| `logs [service]` | Follow logs (see [Viewing logs](#viewing-logs)) |
-| `config` | Validate the Compose configuration (`config --quiet`) |
-| `down` | Stop and remove the containers; the RabbitMQ data volume is kept |
-| `migrate [--mode docker\|host] identity-service\|delivery-service` | Run one explicit database migration |
+| Command                                                            | What it does                                                        |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `up --mode docker --build`                                       | Build images and start the whole stack (default mode is `docker`) |
+| `up`                                                             | Start the stack using existing images (no rebuild)                  |
+| `up --build delivery-service`                                    | Rebuild and start one service                                       |
+| `up --mode host`                                                 | Run the backend and frontend directly on your machine               |
+| `build [service]`                                                | Build images only                                                   |
+| `ps`                                                             | Show container status                                               |
+| `logs [service]`                                                 | Follow logs (see [Viewing logs](#viewing-logs))                      |
+| `config`                                                         | Validate the Compose configuration (`config --quiet`)             |
+| `down`                                                           | Stop and remove the containers; the RabbitMQ data volume is kept    |
+| `migrate [--mode docker\|host] identity-service\|delivery-service` | Run one explicit database migration                                 |
 
 Supported service names: `rabbitmq`, `identity-service`, `delivery-service`,
 `merchant-service`, `notification-worker`, `gateway`, and `web`.
@@ -122,8 +122,18 @@ service name; host mode supports only full-stack `up` and `migrate`.
 ```
 
 Host mode requires the pinned .NET SDK, Node/npm, and frontend dependencies
-(`npm ci` in `swiftdrop-frontend`). It starts the backend processes and Vite
-frontend without requiring Neon for liveness. On Windows each process opens in
+(`npm ci` in `swiftdrop-frontend`). By default it starts backend processes with
+`dotnet run` and the Vite frontend without requiring Neon for liveness. Add
+`--watch` to enable backend hot reload:
+
+```sh
+./development/run.sh up --mode host --watch
+```
+
+Watch mode automatically uses .NET's polling file watcher so all backend
+services can run together on Linux systems with a low inotify limit.
+
+On Windows each process opens in
 its own console window; close the window or press Ctrl-C in it to stop that
 process. Each backend receives only its owning database setting. Gateway and
 web receive no database or broker credentials. Host startup performs no
@@ -160,13 +170,13 @@ docker compose --env-file development\.env -f development\compose.yaml logs gate
 
 Where to look first:
 
-| Symptom | Look at |
-| ------- | ------- |
-| API call returns 500 or 502 | `gateway`, then the service it forwards to |
-| Registration or login fails | `identity-service` |
-| Booking or delivery errors | `delivery-service` |
-| Messaging problems | `rabbitmq`, `notification-worker` |
-| Blank page or UI error | Browser DevTools (F12): Console and Network tabs. The `web` container serves the production build through nginx, so its log shows only HTTP requests, not React errors. |
+| Symptom                     | Look at                                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API call returns 500 or 502 | `gateway`, then the service it forwards to                                                                                                                              |
+| Registration or login fails | `identity-service`                                                                                                                                                      |
+| Booking or delivery errors  | `delivery-service`                                                                                                                                                      |
+| Messaging problems          | `rabbitmq`, `notification-worker`                                                                                                                                     |
+| Blank page or UI error      | Browser DevTools (F12): Console and Network tabs. The `web` container serves the production build through nginx, so its log shows only HTTP requests, not React errors. |
 
 In host mode, logs are printed in each service's own console window.
 
@@ -324,9 +334,9 @@ validation. They do not start or migrate the shared stack.
 
 ## Remaining blockers
 
-| Blocker                                                                                             | Owner                         | Exit condition                                                                                                                                                          |
-| --------------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provisioned Neon roles, schema privileges and database-backed readiness have not been verified      | Service/infra owners          | Privately validate owning-role permissions, run each explicit migration after SQL review, and verify persistence; no live Neon validation is claimed by this repository |
-| Merchant human-token integration and Notifications persistence remain incomplete                                  | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
-| RabbitMQ publishers/consumers and outbox relay remain unimplemented | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
-| Container acceptance remains separate from static and host checks                                   | App/infra owners              | Run Docker image build/start and record Gateway/web and container health before merge                                                                                   |
+| Blocker                                                                                        | Owner                         | Exit condition                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provisioned Neon roles, schema privileges and database-backed readiness have not been verified | Service/infra owners          | Privately validate owning-role permissions, run each explicit migration after SQL review, and verify persistence; no live Neon validation is claimed by this repository |
+| Merchant human-token integration and Notifications persistence remain incomplete               | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
+| RabbitMQ publishers/consumers and outbox relay remain unimplemented                            | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
+| Container acceptance remains separate from static and host checks                              | App/infra owners              | Run Docker image build/start and record Gateway/web and container health before merge                                                                                   |

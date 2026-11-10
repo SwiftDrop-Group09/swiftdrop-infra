@@ -10,7 +10,7 @@ compose_file="$script_dir/compose.yaml"
 usage() {
   cat <<'EOF'
 Usage:
-  development/run.sh up [--mode docker|host] [--build] [service]
+  development/run.sh up [--mode docker|host] [--watch] [--build] [service]
   development/run.sh migrate [--mode docker|host] identity-service|delivery-service
   development/run.sh build [service]              # Docker image build
   development/run.sh down|ps|logs|config          # Docker Compose
@@ -19,7 +19,9 @@ Services: rabbitmq, identity-service, delivery-service, merchant-service,
           notification-worker, gateway, web
 
 Docker is the default mode. Host mode starts backend and frontend processes
-directly; stop with Ctrl-C. Docker build/start is required before PR merge.
+directly; stop with Ctrl-C. Use --watch with host mode to enable backend hot
+reload; without it, host mode uses normal dotnet run. Docker build/start is
+required before PR merge.
 Migrations are explicit one-shot tasks; up never applies database migrations.
 EOF
 }
@@ -179,6 +181,7 @@ fi
 action=$1
 shift
 build=0
+watch=0
 service=
 mode=docker
 
@@ -190,6 +193,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --build)
       build=1
+      ;;
+    --watch)
+      watch=1
       ;;
     --mode)
       shift
@@ -244,6 +250,11 @@ fi
 
 if [ "$build" -eq 1 ] && [ "$mode" != docker ]; then
   printf '%s\n' '--build is for Docker mode; host mode uses installed SDK tooling' >&2
+  exit 2
+fi
+
+if [ "$watch" -eq 1 ] && [ "$mode" != host ]; then
+  printf '%s\n' '--watch is only valid with host mode' >&2
   exit 2
 fi
 
@@ -432,11 +443,22 @@ start_host_stack() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
-  start_process identity-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api
-  start_process delivery-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Delivery/SwiftDrop.Delivery.Api
-  start_process merchant-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Merchant/SwiftDrop.Merchant.Api
-  start_process notification-worker dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Workers/SwiftDrop.Notification.Worker
-  start_process gateway dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Gateway/SwiftDrop.Gateway
+  if [ "$watch" -eq 1 ]; then
+    # Polling avoids exhausting Linux inotify instances when watching five
+    # backend projects concurrently, while retaining dotnet watch reloads.
+    export DOTNET_USE_POLLING_FILE_WATCHER=1
+    start_process identity-service dotnet watch --no-restore --configuration Debug --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api
+    start_process delivery-service dotnet watch --no-restore --configuration Debug --no-launch-profile --project src/Services/Delivery/SwiftDrop.Delivery.Api
+    start_process merchant-service dotnet watch --no-restore --configuration Debug --no-launch-profile --project src/Services/Merchant/SwiftDrop.Merchant.Api
+    start_process notification-worker dotnet watch --no-restore --configuration Debug --no-launch-profile --project src/Workers/SwiftDrop.Notification.Worker
+    start_process gateway dotnet watch --no-restore --configuration Debug --no-launch-profile --project src/Gateway/SwiftDrop.Gateway
+  else
+    start_process identity-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Identity/SwiftDrop.Identity.Api
+    start_process delivery-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Delivery/SwiftDrop.Delivery.Api
+    start_process merchant-service dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Services/Merchant/SwiftDrop.Merchant.Api
+    start_process notification-worker dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Workers/SwiftDrop.Notification.Worker
+    start_process gateway dotnet run --no-build --no-restore --configuration Debug --no-launch-profile --project src/Gateway/SwiftDrop.Gateway
+  fi
   start_frontend
   check_health identity-service http://127.0.0.2:8080/health "$identity_pid"
   check_health delivery-service http://127.0.0.3:8080/health "$delivery_pid"
