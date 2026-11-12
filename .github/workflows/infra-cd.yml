@@ -1,0 +1,80 @@
+name: Infra CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target K3s environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: Immutable GHCR image tag (e.g., sha-a1b2c3d)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set overlay & namespace
+        id: target
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+            echo "overlay=prod" >> "$GITHUB_OUTPUT"
+            echo "namespace=swiftdrop-prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "overlay=staging" >> "$GITHUB_OUTPUT"
+            echo "namespace=swiftdrop-staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s\n' "${{ secrets.KUBECONFIG }}" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Pin immutable GHCR image tags
+        run: |
+          cd "k8s/overlays/${{ steps.target.outputs.overlay }}"
+          TAG="${{ github.event.inputs.image_tag }}"
+          kubectl kustomize . >/dev/null
+          for svc in gateway identity delivery merchant notification-worker; do
+            sed -i "s|newName: ghcr.io/swiftdrop-group09/swiftdrop-${svc}$|newName: ghcr.io/swiftdrop-group09/swiftdrop-${svc}|" kustomization.yaml
+          done
+          python3 -c '
+          import sys, re
+          tag = sys.argv[1]
+          path = sys.argv[2]
+          text = open(path).read()
+          text = re.sub(r"(newName: ghcr\.io/swiftdrop-group09/swiftdrop-[^\n]+\n\s+newTag: )[^\n]+", r"\g<1>" + tag, text)
+          open(path, "w").write(text)
+          ' "$TAG" kustomization.yaml
+
+      - name: Apply manifests
+        run: kubectl apply -k "k8s/overlays/${{ steps.target.outputs.overlay }}"
+
+      - name: Verify rollout status
+        run: |
+          NS="${{ steps.target.outputs.namespace }}"
+          for dep in identity-service delivery-service merchant-service notification-worker gateway; do
+            kubectl rollout status "deployment/${dep}" -n "$NS" --timeout=180s
+          done
+
+      - name: Gateway health check
+        if: ${{ secrets.GATEWAY_HEALTH_URL != '' }}
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 "${{ secrets.GATEWAY_HEALTH_URL }}"
+
