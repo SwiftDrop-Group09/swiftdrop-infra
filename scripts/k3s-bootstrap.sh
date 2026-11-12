@@ -4,12 +4,12 @@ set -eu
 # Idempotent K3s + ingress-nginx bootstrap script for Ubuntu (OCI Always Free / AWS EC2).
 # Usage: sudo TRUSTED_CIDR="203.0.113.10/32" ./scripts/k3s-bootstrap.sh
 
-TRUSTED_CIDR=${TRUSTED_CIDR:-"0.0.0.0/0"}
-
 if [ "$(id -u)" -ne 0 ]; then
-  printf 'Run this script as root (e.g., sudo ./scripts/k3s-bootstrap.sh).\n' >&2
+  printf 'Run this script as root (e.g., sudo TRUSTED_CIDR="<YOUR_IP>/32" ./scripts/k3s-bootstrap.sh).\n' >&2
   exit 1
 fi
+
+: "${TRUSTED_CIDR:?Set TRUSTED_CIDR (e.g. 203.0.113.10/32) to restrict SSH (22) and K3s API (6443)}"
 
 printf '==> Configuring UFW firewall (HTTP 80, restricted SSH 22 & K3s API 6443)...\n'
 if command -v ufw >/dev/null 2>&1; then
@@ -21,7 +21,7 @@ fi
 
 printf '==> Installing K3s (Traefik disabled in favor of ingress-nginx)...\n'
 if ! command -v k3s >/dev/null 2>&1; then
-  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644" sh -
+  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=600" sh -
 fi
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml

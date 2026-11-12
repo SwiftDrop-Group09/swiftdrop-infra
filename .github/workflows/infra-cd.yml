@@ -49,8 +49,12 @@ jobs:
 
       - name: Pin immutable GHCR image tags
         run: |
-          cd "k8s/overlays/${{ steps.target.outputs.overlay }}"
           TAG="${{ github.event.inputs.image_tag }}"
+          if ! printf '%s' "$TAG" | grep -Eq '^(sha-[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)$'; then
+            printf 'Invalid image_tag "%s": expected sha-<hex> or v<semver>\n' "$TAG" >&2
+            exit 1
+          fi
+          cd "k8s/overlays/${{ steps.target.outputs.overlay }}"
           kubectl kustomize . >/dev/null
           for svc in gateway identity delivery merchant notification-worker; do
             sed -i "s|newName: ghcr.io/swiftdrop-group09/swiftdrop-${svc}$|newName: ghcr.io/swiftdrop-group09/swiftdrop-${svc}|" kustomization.yaml
