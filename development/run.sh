@@ -11,7 +11,7 @@ usage() {
   cat <<'EOF'
 Usage:
   development/run.sh up [--mode docker|host] [--watch] [--build] [service]
-  development/run.sh migrate [--mode docker|host] identity-service|delivery-service|merchant-service
+  development/run.sh migrate [--mode docker|host] identity-service|delivery-service|merchant-service|notification-worker
   development/run.sh build [service]              # Docker image build
   development/run.sh down|ps|logs|config          # Docker Compose
 
@@ -147,8 +147,9 @@ read_optional_env_value() {
 }
 
 clear_child_secrets() {
-  # A caller may export all six inputs. Give each app only its owning setting.
-  unset RABBITMQ_DEFAULT_PASS IDENTITY_DATABASE_CONNECTION_STRING \
+  # Give each app only its owning settings; never inherit broker secrets.
+  unset RABBITMQ_DEFAULT_PASS WORKER_BROKER_PASSWORD DELIVERY_BROKER_PASSWORD \
+    IDENTITY_DATABASE_CONNECTION_STRING \
     DELIVERY_DATABASE_CONNECTION_STRING MERCHANT_DATABASE_CONNECTION_STRING \
     NOTIFICATIONS_DATABASE_CONNECTION_STRING IDENTITY_MIGRATION_CONNECTION_STRING \
     ConnectionStrings__Database ConnectionStrings__MigrationDatabase \
@@ -279,9 +280,9 @@ esac
 
 if [ "$action" = migrate ]; then
   case "$service" in
-    identity-service|delivery-service|merchant-service) ;;
+    identity-service|delivery-service|merchant-service|notification-worker) ;;
     *)
-      printf '%s\n' 'migrate requires identity-service, delivery-service, or merchant-service' >&2
+      printf '%s\n' 'migrate requires identity-service, delivery-service, merchant-service, or notification-worker' >&2
       exit 2
       ;;
   esac
@@ -305,6 +306,11 @@ run_host_migration() {
       [ -z "$migration_connection" ] && migration_connection=$(read_optional_env_value MERCHANT_DATABASE_CONNECTION_STRING)
       migration_setting=ConnectionStrings__Database
       migration_project=src/Services/Merchant/SwiftDrop.Merchant.Api
+      ;;
+    notification-worker)
+      migration_connection=$(read_optional_env_value NOTIFICATIONS_DATABASE_CONNECTION_STRING)
+      migration_setting=ConnectionStrings__Database
+      migration_project=src/Workers/SwiftDrop.Notification.Worker
       ;;
   esac
   if [ -z "$migration_connection" ]; then
@@ -521,6 +527,7 @@ case "$action" in
     case "$service" in
       identity-service) migration_task=identity-migrate ;;
       delivery-service) migration_task=delivery-migrate ;;
+      notification-worker) migration_task=notification-migrate ;;
     esac
     compose --profile database-migrations run --rm --no-deps "$migration_task"
     ;;

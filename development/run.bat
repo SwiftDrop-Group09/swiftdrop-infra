@@ -117,8 +117,8 @@ if "!VALID_ACT!"=="0" (
 )
 
 if "%ACTION%"=="migrate" (
-    if not "%SERVICE%"=="identity-service" if not "%SERVICE%"=="delivery-service" (
-        echo migrate requires identity-service or delivery-service >&2
+    if not "%SERVICE%"=="identity-service" if not "%SERVICE%"=="delivery-service" if not "%SERVICE%"=="notification-worker" (
+        echo migrate requires identity-service, delivery-service, or notification-worker >&2
         exit /b 2
     )
 )
@@ -142,6 +142,7 @@ if "%ACTION%"=="migrate" (
     set "MIGRATION_TASK="
     if "%SERVICE%"=="identity-service" set "MIGRATION_TASK=identity-migrate"
     if "%SERVICE%"=="delivery-service" set "MIGRATION_TASK=delivery-migrate"
+    if "%SERVICE%"=="notification-worker" set "MIGRATION_TASK=notification-migrate"
     docker compose --env-file "%ENV_FILE%" -f "%COMPOSE_FILE%" --profile database-migrations run --rm --no-deps !MIGRATION_TASK!
     set "EXIT_CODE=!errorlevel!"
     popd
@@ -231,7 +232,7 @@ exit /b 0
 :usage
 echo Usage:
 echo   development\run.bat up [--mode docker^|host] [--build] [service]
-echo   development\run.bat migrate [--mode docker^|host] identity-service^|delivery-service
+echo   development\run.bat migrate [--mode docker^|host] identity-service^|delivery-service^|notification-worker
 echo   development\run.bat build [service]              # Docker image build
 echo   development\run.bat down^|ps^|logs^|config          # Docker Compose
 echo.
@@ -293,13 +294,19 @@ set "MIG_CONN="
 for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do (
     if "%SERVICE%"=="identity-service" if "%%A"=="IDENTITY_MIGRATION_CONNECTION_STRING" set "MIG_CONN=%%B"
     if "%SERVICE%"=="delivery-service" if "%%A"=="DELIVERY_DATABASE_CONNECTION_STRING" set "MIG_CONN=%%B"
+    if "%SERVICE%"=="notification-worker" if "%%A"=="NOTIFICATIONS_DATABASE_CONNECTION_STRING" set "MIG_CONN=%%B"
 )
 if "%SERVICE%"=="identity-service" (
     set "MIG_SETTING=ConnectionStrings__MigrationDatabase"
     set "MIG_PROJECT=src\Services\Identity\SwiftDrop.Identity.Api"
-) else (
+)
+if "%SERVICE%"=="delivery-service" (
     set "MIG_SETTING=ConnectionStrings__Database"
     set "MIG_PROJECT=src\Services\Delivery\SwiftDrop.Delivery.Api"
+)
+if "%SERVICE%"=="notification-worker" (
+    set "MIG_SETTING=ConnectionStrings__Database"
+    set "MIG_PROJECT=src\Workers\SwiftDrop.Notification.Worker"
 )
 if "%MIG_CONN%"=="" (
     echo Configure the owning migration connection before migrating %SERVICE% >&2

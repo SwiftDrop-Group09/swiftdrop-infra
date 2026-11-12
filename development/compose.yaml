@@ -26,14 +26,18 @@ services:
       dockerfile: Dockerfile
       args:
         PROJECT_FILE: src/Services/Identity/SwiftDrop.Identity.Api/SwiftDrop.Identity.Api.csproj
+    user: "0:0"
     entrypoint: ["sh", "-c"]
     command:
       - >
-        if [ ! -f /tmp/swiftdrop/identity/development.pem ]; then
-          mkdir -p /tmp/swiftdrop/identity &&
-          dotnet SwiftDrop.Identity.Api.dll --generate-development-key;
-        fi &&
-        exec dotnet SwiftDrop.Identity.Api.dll
+        chown 1654:1654 /tmp/swiftdrop/identity &&
+        chown 1654:1654 /home/app/.aspnet/DataProtection-Keys &&
+        exec runuser -u app -- sh -c '
+          if [ ! -f /tmp/swiftdrop/identity/development.pem ]; then
+            dotnet SwiftDrop.Identity.Api.dll --generate-development-key;
+          fi &&
+          exec dotnet SwiftDrop.Identity.Api.dll
+        '
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       DOTNET_ENVIRONMENT: Development
@@ -112,6 +116,14 @@ services:
       ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
     restart: "no"
 
+  notification-migrate:
+    profiles: ["database-migrations"]
+    image: swiftdrop/notification-worker:dev
+    command: ["SwiftDrop.Notification.Worker.dll", "--migrate"]
+    environment:
+      ConnectionStrings__Database: ${NOTIFICATIONS_DATABASE_CONNECTION_STRING:-}
+    restart: "no"
+
   merchant-service:
     image: swiftdrop/merchant:dev
     build:
@@ -150,6 +162,10 @@ services:
       DOTNET_ENVIRONMENT: Production
       Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
       ConnectionStrings__Database: ${NOTIFICATIONS_DATABASE_CONNECTION_STRING:-}
+      Notification__Broker__Host: rabbitmq
+      Notification__Broker__VirtualHost: /
+      Notification__Broker__Username: worker_bus
+      Notification__Broker__Password: ${WORKER_BROKER_PASSWORD:-}
     depends_on:
       rabbitmq:
         condition: service_healthy

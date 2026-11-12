@@ -67,9 +67,9 @@ On first use, the script copies `development/.env.example` to the ignored
 existing password, so the value in `.env` stays in step with the RabbitMQ data
 volume. It also preserves existing private connection strings. The default
 scaffold startup does not require Neon credentials: the sample values are
-enough to run the containers and process health checks. Identity and Delivery
-migrations are explicit one-shot tasks through the `database-migrations`
-Compose profile; `up` never applies migrations. Database-backed Identity routes
+enough to run the containers and process health checks. Identity, Delivery, and
+Notification Worker migrations are explicit one-shot tasks through the
+`database-migrations` Compose profile; `up` never applies migrations. Database-backed Identity routes
 remain unavailable until its Neon database, runtime role, migration role and
 schema are provisioned.
 
@@ -138,7 +138,8 @@ its own console window; close the window or press Ctrl-C in it to stop that
 process. Each backend receives only its owning database setting. Gateway and
 web receive no database or broker credentials. Host startup performs no
 migration, including when migration credentials are configured. It does not
-start RabbitMQ; current application services do not connect to the broker.
+start RabbitMQ. The Notification Worker consumes only when RabbitMQ, its
+Notifications database, and dedicated `worker_bus` credentials are configured.
 
 ## Viewing logs
 
@@ -191,11 +192,22 @@ the examples contain placeholders only.
 | Secret                                       | Recipient / use                                                                                                      |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `RABBITMQ_DEFAULT_PASS`                    | RabbitMQ administrator only, never application workloads                                                             |
+| `WORKER_BROKER_PASSWORD`                   | Notification Worker `worker_bus` RabbitMQ password; never use the administrator password                          |
+| `DELIVERY_BROKER_PASSWORD`                 | Delivery `delivery_bus` RabbitMQ password                                                                         |
 | `IDENTITY_DATABASE_CONNECTION_STRING`      | Identity `ConnectionStrings__Database`, database `swiftdrop_identity`                                            |
 | `DELIVERY_DATABASE_CONNECTION_STRING`      | Delivery `ConnectionStrings__Database`, database `swiftdrop_delivery`; also the explicit Delivery migration task |
 | `MERCHANT_DATABASE_CONNECTION_STRING`      | Merchant `ConnectionStrings__Database`, database `swiftdrop_merchant`                                            |
-| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker `ConnectionStrings__Database`, database `swiftdrop_notifications`                            |
+| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker database `swiftdrop_notifications`, runtime and explicit migration task                     |
 | `IDENTITY_MIGRATION_CONNECTION_STRING`     | Explicit Identity task's `ConnectionStrings__MigrationDatabase`, database `swiftdrop_identity`                   |
+
+For Docker mode, Compose maps the Worker credential to
+`Notification__Broker__Password`, host `rabbitmq`, username `worker_bus`, and
+virtual host `/`. Provision the dedicated RabbitMQ users and permissions before
+enabling consumption. If the Notifications database or broker credentials are
+missing, the Worker remains live but logs that message consumption is disabled.
+Run `development/run.sh migrate notification-worker` (or
+`development\run.bat migrate notification-worker` on Windows) after provisioning
+the Notifications database and before enabling the consumer.
 
 Review the backend's generated migration SQL before applying it to a shared
 database. Provision the roles and permissions privately; the runner creates no
@@ -314,12 +326,12 @@ ACLs, no resource-policy Allow and server-side encryption. Missing storage
 configuration fails completion without committing Delivered. No shared MinIO
 container or automatic bucket provisioning is introduced.
 
-The six database/broker names remain unchanged. No real Neon or bucket migration
+The eight database/broker inputs are listed above. No real Neon or bucket migration
 is performed by runner tests; they use synthetic inputs and disposable fixtures.
 
 Kubernetes manifests are separate from this developer workflow. See
 `k8s/` for that optional baseline; it has not been runtime-tested and still
-contains future broker/object-store credentials outside the current six-secret
+contains future broker/object-store credentials outside the current eight-secret
 workflow. Reconcile it with implemented adapters before deploying it.
 
 Run the runner checks without Docker or Neon:
@@ -338,7 +350,7 @@ validation. They do not start or migrate the shared stack.
 | ---------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provisioned Neon roles, schema privileges and database-backed readiness have not been verified | Service/infra owners          | Privately validate owning-role permissions, run each explicit migration after SQL review, and verify persistence; no live Neon validation is claimed by this repository |
 | Merchant human-token integration and Notifications persistence remain incomplete               | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
-| RabbitMQ publishers/consumers and outbox relay remain unimplemented                            | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
+| Delivery event publishers/outbox relay and end-to-end notification effects remain incomplete   | Delivery/Notifications owners | Exercise a committed status event through broker acknowledgement, consumer deduplication, and durable notification/provider effects                                    |
 | Container acceptance remains separate from static and host checks                              | App/infra owners              | Run Docker image build/start and record Gateway/web and container health before merge                                                                                   |
 
 ## Delivery authentication
