@@ -54,7 +54,8 @@ In `SwiftDrop-Group09/swiftdrop-infra` GitHub repository settings:
 2. In each environment, add secrets:
    - `KUBECONFIG`: Contents of `/etc/rancher/k3s/k3s.yaml` with `127.0.0.1` replaced by the VM's public IP.
    - `GATEWAY_HEALTH_URL`: e.g. `http://api.swiftdrop.example.com/health` (or `http://<VM_PUBLIC_IP>/health` with Host header).
-3. Run **Actions → Infra CD → Run workflow**, select `staging` or `production`, and enter the immutable image tag from `backend-images.yml` (e.g., `sha-99dbc98`).
+3. **Automatic Staging CD**: In `SwiftDrop-Group09/swiftdrop-backend` secrets, add `INFRA_DISPATCH_TOKEN` (a fine-grained PAT with `Contents: Read` and `Actions: Write` / `Metadata: Read` on `swiftdrop-infra`) so pushing to `main` automatically dispatches `infra-cd.yml` to `staging`.
+4. **Manual / Production CD**: Run **Actions → Infra CD → Run workflow**, select `staging` or `production`, and enter the immutable image tag from `backend-images.yml` (e.g., `sha-99dbc98`).
 
 ---
 

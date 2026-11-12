@@ -1,6 +1,8 @@
 name: Infra CD
 
 on:
+  repository_dispatch:
+    types: [backend-images-published]
   workflow_dispatch:
     inputs:
       environment:
@@ -22,21 +24,35 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: ${{ github.event.inputs.environment }}
+    environment: ${{ github.event_name == 'repository_dispatch' && 'staging' || github.event.inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set overlay & namespace
+      - name: Set overlay, namespace & image tag
         id: target
         run: |
-          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            TARGET_ENV="staging"
+            TAG="${{ github.event.client_payload.image_tag }}"
+          else
+            TARGET_ENV="${{ github.event.inputs.environment }}"
+            TAG="${{ github.event.inputs.image_tag }}"
+          fi
+
+          if ! printf '%s' "$TAG" | grep -Eq '^(sha-[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)$'; then
+            printf 'Invalid image_tag "%s": expected sha-<hex> or v<semver>\n' "$TAG" >&2
+            exit 1
+          fi
+
+          if [ "$TARGET_ENV" = "production" ]; then
             echo "overlay=prod" >> "$GITHUB_OUTPUT"
             echo "namespace=swiftdrop-prod" >> "$GITHUB_OUTPUT"
           else
             echo "overlay=staging" >> "$GITHUB_OUTPUT"
             echo "namespace=swiftdrop-staging" >> "$GITHUB_OUTPUT"
           fi
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
@@ -49,16 +65,9 @@ jobs:
 
       - name: Pin immutable GHCR image tags
         run: |
-          TAG="${{ github.event.inputs.image_tag }}"
-          if ! printf '%s' "$TAG" | grep -Eq '^(sha-[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)$'; then
-            printf 'Invalid image_tag "%s": expected sha-<hex> or v<semver>\n' "$TAG" >&2
-            exit 1
-          fi
           cd "k8s/overlays/${{ steps.target.outputs.overlay }}"
+          TAG="${{ steps.target.outputs.image_tag }}"
           kubectl kustomize . >/dev/null
-          for svc in gateway identity delivery merchant notification-worker; do
-            sed -i "s|newName: ghcr.io/swiftdrop-group09/swiftdrop-${svc}$|newName: ghcr.io/swiftdrop-group09/swiftdrop-${svc}|" kustomization.yaml
-          done
           python3 -c '
           import sys, re
           tag = sys.argv[1]
@@ -81,4 +90,3 @@ jobs:
       - name: Gateway health check
         if: ${{ secrets.GATEWAY_HEALTH_URL != '' }}
         run: curl --fail --silent --show-error --retry 5 --retry-delay 5 "${{ secrets.GATEWAY_HEALTH_URL }}"
-
