@@ -1,0 +1,45 @@
+name: Infra CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose config
+        run: |
+          cp development/.env.example development/.env
+          docker compose --env-file development/.env -f development/compose.yaml config --quiet
+
+  validate-k8s:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        overlay: [dev, staging, prod]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubeconform
+        uses: yokawasa/action-setup-kube-tools@v0.11.2
+        with:
+          kubeconform: '0.6.7'
+
+      - name: Render and validate kustomize overlay (${{ matrix.overlay }})
+        run: |
+          kubectl kustomize "k8s/overlays/${{ matrix.overlay }}" > rendered.yaml
+          kubeconform -strict -ignore-missing-schemas -summary rendered.yaml
+

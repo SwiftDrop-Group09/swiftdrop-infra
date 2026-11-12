@@ -4,6 +4,11 @@ metadata:
   name: identity-service
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: identity-service
@@ -13,11 +18,18 @@ spec:
         app: identity-service
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: identity
           image: swiftdrop/identity:local
           imagePullPolicy: IfNotPresent
           args: ["SwiftDrop.Identity.Api.dll"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8080
@@ -28,7 +40,7 @@ spec:
                 name: identity-secrets
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
             periodSeconds: 10
           livenessProbe:
@@ -47,6 +59,11 @@ metadata:
   name: delivery-service
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: delivery-service
@@ -56,11 +73,18 @@ spec:
         app: delivery-service
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: delivery
           image: swiftdrop/delivery:local
           imagePullPolicy: IfNotPresent
           args: ["SwiftDrop.Delivery.Api.dll"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - {name: http, containerPort: 8080}
             - {name: grpc, containerPort: 8081}
@@ -75,16 +99,6 @@ spec:
                 secretKeyRef:
                   name: rabbitmq-secrets
                   key: DELIVERY_BROKER_PASSWORD
-            - name: ObjectStore__AccessKey
-              valueFrom:
-                secretKeyRef:
-                  name: object-store-secrets
-                  key: DELIVERY_OBJECT_ACCESS_KEY
-            - name: ObjectStore__SecretKey
-              valueFrom:
-                secretKeyRef:
-                  name: object-store-secrets
-                  key: DELIVERY_OBJECT_SECRET_KEY
           readinessProbe:
             httpGet:
               path: /health
@@ -106,6 +120,11 @@ metadata:
   name: merchant-service
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: merchant-service
@@ -115,11 +134,18 @@ spec:
         app: merchant-service
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: merchant
           image: swiftdrop/merchant:local
           imagePullPolicy: IfNotPresent
           args: ["SwiftDrop.Merchant.Api.dll"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8080
@@ -149,6 +175,11 @@ metadata:
   name: notification-worker
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: notification-worker
@@ -158,11 +189,18 @@ spec:
         app: notification-worker
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: worker
           image: swiftdrop/notification-worker:local
           imagePullPolicy: IfNotPresent
           args: ["SwiftDrop.Notification.Worker.dll"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: health
               containerPort: 8080
@@ -198,6 +236,11 @@ metadata:
   name: gateway
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: gateway
@@ -207,11 +250,18 @@ spec:
         app: gateway
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: gateway
           image: swiftdrop/gateway:local
           imagePullPolicy: IfNotPresent
           args: ["SwiftDrop.Gateway.dll"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8080
@@ -239,6 +289,11 @@ metadata:
   name: web
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: web

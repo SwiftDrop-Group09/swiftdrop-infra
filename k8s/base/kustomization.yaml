@@ -8,10 +8,8 @@ resources:
   - app-services.yaml
   - stateful-dependencies.yaml
   - ingress.yaml
+  - network-policies.yaml
 configMapGenerator:
-  - name: delivery-private-policy
-    files:
-      - delivery-policy.json=delivery-policy.json
   - name: rabbitmq-bootstrap
     files:
       - bootstrap-users.sh=rabbitmq-bootstrap.sh
