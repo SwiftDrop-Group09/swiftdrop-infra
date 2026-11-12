@@ -6,8 +6,8 @@ data:
   ASPNETCORE_ENVIRONMENT: Production
   DOTNET_ENVIRONMENT: Production
   Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
-  Jwt__Issuer: https://identity.example.invalid
-  Jwt__Audience: swiftdrop-api-local
+  Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
+  Identity__Tokens__Audience: swiftdrop-api-local
   Identity__Google__WebClientIds__0: REPLACE_WITH_WEB_CLIENT_ID
   Identity__Google__AndroidClientIds__0: REPLACE_WITH_ANDROID_CLIENT_ID
   Identity__Browser__AllowedOrigins__0: https://app.swiftdrop.example.com
@@ -24,9 +24,10 @@ data:
   Operations__TimeZone: Asia/Colombo
   Broker__Host: rabbitmq
   Broker__Username: delivery_bus
-  Jwt__Issuer: https://identity.example.invalid
-  Jwt__Audience: swiftdrop-api-local
-  Jwt__JwksUri: http://identity-service:8080/.well-known/jwks.json
+  Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
+  Identity__Tokens__Audience: swiftdrop-api-local
+  Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
+  Identity__Tokens__AllowInsecureJwks: "true"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -37,9 +38,9 @@ data:
   DOTNET_ENVIRONMENT: Production
   Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
   Delivery__GrpcAddress: http://delivery-service:8081
-  Jwt__Issuer: https://identity.example.invalid
-  Jwt__Audience: swiftdrop-api-local
-  Jwt__JwksUri: http://identity-service:8080/.well-known/jwks.json
+  Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
+  Identity__Tokens__Audience: swiftdrop-api-local
+  Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -53,8 +54,8 @@ data:
   Broker__Username: worker_bus
   Merchant__BaseUrl: http://merchant-service:8080
   Delivery__BaseUrl: http://delivery-service:8080
-  Jwt__Issuer: https://identity.example.invalid
-  Jwt__JwksUri: http://identity-service:8080/.well-known/jwks.json
+  Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
+  Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
 ---
 apiVersion: v1
 kind: ConfigMap

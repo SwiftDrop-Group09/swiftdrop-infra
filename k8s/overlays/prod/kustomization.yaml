@@ -55,7 +55,7 @@ patches:
       name: identity-config
     patch: |-
       - op: replace
-        path: /data/Jwt__Issuer
+        path: /data/Identity__Tokens__Issuer
         value: http://api.swiftdrop.example.com
       - op: replace
         path: /data/Identity__Browser__AllowedOrigins__0
@@ -65,19 +65,19 @@ patches:
       name: delivery-config
     patch: |-
       - op: replace
-        path: /data/Jwt__Issuer
+        path: /data/Identity__Tokens__Issuer
         value: http://api.swiftdrop.example.com
   - target:
       kind: ConfigMap
       name: merchant-config
     patch: |-
       - op: replace
-        path: /data/Jwt__Issuer
+        path: /data/Identity__Tokens__Issuer
         value: http://api.swiftdrop.example.com
   - target:
       kind: ConfigMap
       name: notifications-config
     patch: |-
       - op: replace
-        path: /data/Jwt__Issuer
+        path: /data/Identity__Tokens__Issuer
         value: http://api.swiftdrop.example.com
