@@ -84,6 +84,10 @@ services:
       Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
       Kestrel__Endpoints__Grpc__Url: http://0.0.0.0:8081
       ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
+      Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
+      Identity__Tokens__Audience: swiftdrop-api-local
+      Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
+      Identity__Tokens__AllowInsecureJwks: "true"
       Operations__TimeZone: Asia/Colombo
       ProofStorage__Endpoint: ${DELIVERY_PROOF_STORAGE_ENDPOINT:-}
       ProofStorage__Bucket: ${DELIVERY_PROOF_STORAGE_BUCKET:-}
