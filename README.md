@@ -340,3 +340,14 @@ validation. They do not start or migrate the shared stack.
 | Merchant human-token integration and Notifications persistence remain incomplete               | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
 | RabbitMQ publishers/consumers and outbox relay remain unimplemented                            | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
 | Container acceptance remains separate from static and host checks                              | App/infra owners              | Run Docker image build/start and record Gateway/web and container health before merge                                                                                   |
+
+## Delivery authentication
+
+Delivery verifies Identity's RS256 access tokens with public keys from JWKS. The
+host runner uses Identity's loopback address; Docker uses `identity-service` DNS.
+Both configure matching `Identity__Tokens__Issuer`, `Audience` and `JwksUrl`.
+`AllowInsecureJwks=true` is restricted to loopback or that internal development
+service hostname. Nonlocal deployments must use HTTPS metadata and their own
+issuer/audience values. Delivery receives no Identity private signing key or
+Identity database credentials. Apply the backend JWT integration PR before this
+configuration; restart the host stack or rebuild Delivery after integration.

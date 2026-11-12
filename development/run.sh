@@ -380,6 +380,10 @@ start_host_stack() {
         identity-service) export ConnectionStrings__Database="$identity_connection_string" ;;
         delivery-service)
           export ConnectionStrings__Database="$delivery_connection_string"
+          export Identity__Tokens__Issuer="https://identity.swiftdrop.invalid"
+          export Identity__Tokens__Audience="swiftdrop-api-local"
+          export Identity__Tokens__JwksUrl="http://127.0.0.2:8080/.well-known/jwks.json"
+          export Identity__Tokens__AllowInsecureJwks=true
           export ProofStorage__Endpoint="$proof_endpoint"
           export ProofStorage__Bucket="$proof_bucket"
           export ProofStorage__Region="$proof_region"

@@ -60,10 +60,20 @@ class RunnerTests(unittest.TestCase):
         self.environment.update(
             PATH=str(self.bin) + os.pathsep + self.environment["PATH"],
             MOCK_CALLS=str(self.calls).replace("\\", "/"),
+            SWIFTDROP_TEST_BIN=str(self.bin).replace("\\", "/"),
             ConnectionStrings__Database="stale-unscoped-runtime",
             ConnectionStrings__MigrationDatabase="stale-unscoped-migration",
         )
-        self.write_tool("curl", "exit 0\n")
+        self.write_tool("curl",
+            'attempt=0\n'
+            'while :; do\n'
+            '  ready=1\n'
+            '  for name in SwiftDrop.Identity.Api SwiftDrop.Delivery.Api SwiftDrop.Merchant.Api SwiftDrop.Notification.Worker SwiftDrop.Gateway web; do\n'
+            '    [ -f "$MOCK_CALLS/$name.env" ] || ready=0\n'
+            '  done\n'
+            '  [ "$ready" = 0 ] || exit 0\n'
+            '  attempt=$((attempt + 1)); [ "$attempt" -lt 200 ] || exit 1; sleep 0.02\n'
+            'done\n')
         self.write_tool("npm", "exit 0\n")
         self.write_tool(
             "docker", 'printf "%s\\n" "$@" > "$MOCK_CALLS/docker.args"\n'
@@ -84,7 +94,12 @@ class RunnerTests(unittest.TestCase):
             'done\n'
             'name=${project##*/}\n'
             'printf "%s\\n" "$arguments" > "$MOCK_CALLS/$name.args"\n'
-            'env > "$MOCK_CALLS/$name.env"\n',
+            'env > "$MOCK_CALLS/$name.env"\n'
+            'case "$arguments" in *--migrate*) exit 0 ;; esac\n'
+            'attempt=0\n'
+            'while [ ! -f "$MOCK_CALLS/web.env" ] || [ ! -f "$MOCK_CALLS/SwiftDrop.Gateway.env" ]; do\n'
+            '  attempt=$((attempt + 1)); [ "$attempt" -lt 100 ] || exit 1; sleep 0.02\n'
+            'done\n',
         )
         react_router = frontend_bin / "react-router"
         react_router.write_text(
@@ -99,7 +114,8 @@ class RunnerTests(unittest.TestCase):
 
     def run_runner(self, *args):
         result = subprocess.run(
-            [find_shell(), str(self.development / "run.sh"), *args],
+            [find_shell(), "-c", 'PATH="$(cd "$SWIFTDROP_TEST_BIN" && pwd):$PATH"; export PATH; . "$0"',
+             str(self.development / "run.sh"), *args],
             cwd=self.infra,
             env=self.environment,
             text=True,
@@ -170,6 +186,15 @@ class RunnerTests(unittest.TestCase):
                     self.assertEqual(f"export-{suffix}", values[f"ProofStorage__{setting}"])
                 else:
                     self.assertNotIn(f"ProofStorage__{setting}", values)
+
+    def test_delivery_receives_identity_public_verification_configuration(self):
+        self.run_runner("up", "--mode", "host")
+        values = self.process_environment("SwiftDrop.Delivery.Api")
+        self.assertEqual("https://identity.swiftdrop.invalid", values["Identity__Tokens__Issuer"])
+        self.assertEqual("swiftdrop-api-local", values["Identity__Tokens__Audience"])
+        self.assertEqual("http://127.0.0.2:8080/.well-known/jwks.json", values["Identity__Tokens__JwksUrl"])
+        self.assertEqual("true", values["Identity__Tokens__AllowInsecureJwks"])
+        self.assertNotIn("Identity__Tokens__PrivateKeyPath", values)
 
     def test_failed_host_build_starts_no_processes(self):
         self.environment["MOCK_BUILD_EXIT"] = "7"
@@ -244,7 +269,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(["config", "--quiet"], arguments[-2:])
 
     def test_migration_requires_an_implemented_owning_service(self):
-        for args in (("migrate",), ("migrate", "merchant-service")):
+        for args in (("migrate",), ("migrate", "gateway")):
             with self.subTest(args=args):
                 result = self.run_runner(*args)
                 self.assertEqual(2, result.returncode)
