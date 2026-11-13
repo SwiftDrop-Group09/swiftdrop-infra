@@ -109,7 +109,7 @@ services:
     image: swiftdrop/delivery:dev
     command: ["SwiftDrop.Delivery.Api.dll", "--migrate"]
     environment:
-      ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
+      ConnectionStrings__Database: ${DELIVERY_MIGRATION_CONNECTION_STRING:-${DELIVERY_DATABASE_CONNECTION_STRING:-}}
     restart: "no"
 
   merchant-service:
@@ -136,6 +136,14 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  merchant-migrate:
+    profiles: ["database-migrations"]
+    image: swiftdrop/merchant:dev
+    command: ["SwiftDrop.Merchant.Api.dll", "--migrate"]
+    environment:
+      ConnectionStrings__Database: ${MERCHANT_MIGRATION_CONNECTION_STRING:-${MERCHANT_DATABASE_CONNECTION_STRING:-}}
+    restart: "no"
 
   notification-worker:
     image: swiftdrop/notification-worker:dev
