@@ -3,10 +3,4 @@ kind: Deployment
 metadata:
   name: web
 $patch: delete
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: web
-$patch: delete
 

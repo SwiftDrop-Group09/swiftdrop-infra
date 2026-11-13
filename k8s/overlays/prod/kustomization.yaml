@@ -30,6 +30,7 @@ patches:
         path: /metadata/name
         value: swiftdrop-prod
   - path: delete-web.yaml
+  - path: delete-web-service.yaml
   - path: ingress-http.yaml
   - target:
       kind: Ingress

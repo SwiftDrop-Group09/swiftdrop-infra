@@ -79,6 +79,14 @@ read_optional_env_value() {
   # CI/private shell inputs override the ignored local file, as with Compose.
   # Avoid sourcing/evaluating connection strings as shell code.
   case "$key" in
+    IDENTITY_GOOGLE_WEB_CLIENT_ID)
+      value=${IDENTITY_GOOGLE_WEB_CLIENT_ID-}
+      present=${IDENTITY_GOOGLE_WEB_CLIENT_ID+1}
+      ;;
+    VITE_GOOGLE_WEB_CLIENT_ID)
+      value=${VITE_GOOGLE_WEB_CLIENT_ID-}
+      present=${VITE_GOOGLE_WEB_CLIENT_ID+1}
+      ;;
     IDENTITY_DATABASE_CONNECTION_STRING)
       value=${IDENTITY_DATABASE_CONNECTION_STRING-}
       present=${IDENTITY_DATABASE_CONNECTION_STRING+1}
@@ -152,6 +160,7 @@ clear_child_secrets() {
     DELIVERY_DATABASE_CONNECTION_STRING MERCHANT_DATABASE_CONNECTION_STRING \
     NOTIFICATIONS_DATABASE_CONNECTION_STRING IDENTITY_MIGRATION_CONNECTION_STRING \
     ConnectionStrings__Database ConnectionStrings__MigrationDatabase \
+    IDENTITY_GOOGLE_WEB_CLIENT_ID VITE_GOOGLE_WEB_CLIENT_ID Identity__Google__WebClientIds__0 \
     DELIVERY_PROOF_STORAGE_ENDPOINT \
     DELIVERY_PROOF_STORAGE_BUCKET \
     DELIVERY_PROOF_STORAGE_REGION \
@@ -332,6 +341,9 @@ start_host_stack() {
   delivery_connection_string=$(read_optional_env_value DELIVERY_DATABASE_CONNECTION_STRING)
   merchant_connection_string=$(read_optional_env_value MERCHANT_DATABASE_CONNECTION_STRING)
   notifications_connection_string=$(read_optional_env_value NOTIFICATIONS_DATABASE_CONNECTION_STRING)
+  web_google_client_id=$(read_optional_env_value VITE_GOOGLE_WEB_CLIENT_ID)
+  identity_google_client_id=$(read_optional_env_value IDENTITY_GOOGLE_WEB_CLIENT_ID)
+  [ -n "$identity_google_client_id" ] || identity_google_client_id=$web_google_client_id
   log_dir="$script_dir/.logs"
   pids=
 
@@ -377,7 +389,12 @@ start_host_stack() {
       export ASPNETCORE_ENVIRONMENT=Development
       export DOTNET_ENVIRONMENT=Development
       case "$name" in
-        identity-service) export ConnectionStrings__Database="$identity_connection_string" ;;
+        identity-service)
+          export ConnectionStrings__Database="$identity_connection_string"
+          if [ -n "$identity_google_client_id" ]; then
+            export Identity__Google__WebClientIds__0="$identity_google_client_id"
+          fi
+          ;;
         delivery-service)
           export ConnectionStrings__Database="$delivery_connection_string"
           export Identity__Tokens__Issuer="https://identity.swiftdrop.invalid"
@@ -418,6 +435,9 @@ start_host_stack() {
     (
       cd "$frontend_dir"
       clear_child_secrets
+      if [ -n "$web_google_client_id" ]; then
+        export VITE_GOOGLE_WEB_CLIENT_ID="$web_google_client_id"
+      fi
       exec ./node_modules/.bin/react-router dev --host 127.0.0.1
     ) > "$log_file" 2>&1 &
     pid=$!

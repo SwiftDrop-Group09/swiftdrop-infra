@@ -45,7 +45,7 @@ services:
       Identity__Browser__AllowedOrigins__3: http://127.0.0.1:5000
       Identity__Browser__AllowedOrigins__4: http://localhost
       Identity__Browser__AllowedOrigins__5: http://127.0.0.1
-      Identity__Google__WebClientIds__0: ${IDENTITY_GOOGLE_WEB_CLIENT_ID:-}
+      Identity__Google__WebClientIds__0: ${IDENTITY_GOOGLE_WEB_CLIENT_ID:-${VITE_GOOGLE_WEB_CLIENT_ID:-}}
       Identity__Proxy__KnownProxies__0: 127.0.0.1
       Identity__Proxy__KnownProxies__1: 172.28.0.10
       Identity__Proxy__KnownProxies__2: 172.28.0.11
