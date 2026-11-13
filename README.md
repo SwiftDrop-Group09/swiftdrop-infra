@@ -317,6 +317,16 @@ container or automatic bucket provisioning is introduced.
 The six database/broker names remain unchanged. No real Neon or bucket migration
 is performed by runner tests; they use synthetic inputs and disposable fixtures.
 
+Google browser sign-in requires the same public OAuth client ID in the web app
+and Identity's trusted audience list. Set `VITE_GOOGLE_WEB_CLIENT_ID` in ignored
+`development/.env` or export it before starting the runner. Host and Docker modes
+use it for Identity too unless `IDENTITY_GOOGLE_WEB_CLIENT_ID` explicitly overrides
+the server audience. Host mode forwards each public setting only to its owning
+process, including when `--watch` is used. Restart the host stack after changing
+these environment values. Missing Identity audiences return `google_unavailable`
+(503); malformed or untrusted credentials continue to be rejected. These are
+public IDs, and Google client secrets must never be supplied to the frontend.
+
 Kubernetes manifests are separate from this developer workflow. See
 `k8s/` for that optional baseline; it has not been runtime-tested and still
 contains future broker/object-store credentials outside the current six-secret

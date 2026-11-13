@@ -56,6 +56,8 @@ class RunnerTests(unittest.TestCase):
         )
         self.original_env = self.env_file.read_bytes()
         self.environment = os.environ.copy()
+        for name in ("IDENTITY_GOOGLE_WEB_CLIENT_ID", "VITE_GOOGLE_WEB_CLIENT_ID"):
+            self.environment.pop(name, None)
         self.environment.update(self.secrets)
         self.environment.update(
             PATH=str(self.bin) + os.pathsep + self.environment["PATH"],
@@ -63,6 +65,7 @@ class RunnerTests(unittest.TestCase):
             SWIFTDROP_TEST_BIN=str(self.bin).replace("\\", "/"),
             ConnectionStrings__Database="stale-unscoped-runtime",
             ConnectionStrings__MigrationDatabase="stale-unscoped-migration",
+            Identity__Google__WebClientIds__0="stale-unscoped-google-client",
         )
         self.write_tool("curl",
             'attempt=0\n'
@@ -164,6 +167,37 @@ class RunnerTests(unittest.TestCase):
             arguments = (self.calls / f"{name}.args").read_text().splitlines()
             self.assertIn("--no-build", arguments)
             self.assertIn("--no-restore", arguments)
+
+    def test_host_google_audience_uses_web_client_and_stays_scoped(self):
+        public_id = "web-client.apps.googleusercontent.com"
+        self.environment["VITE_GOOGLE_WEB_CLIENT_ID"] = public_id
+        self.run_runner("up", "--mode", "host")
+        self.assertEqual(public_id, self.process_environment("SwiftDrop.Identity.Api")["Identity__Google__WebClientIds__0"])
+        self.assertEqual(public_id, self.process_environment("web")["VITE_GOOGLE_WEB_CLIENT_ID"])
+        for name in ("build", "SwiftDrop.Delivery.Api", "SwiftDrop.Merchant.Api", "SwiftDrop.Notification.Worker", "SwiftDrop.Gateway"):
+            environment = self.process_environment(name)
+            self.assertNotIn("Identity__Google__WebClientIds__0", environment)
+            self.assertNotIn("VITE_GOOGLE_WEB_CLIENT_ID", environment)
+        self.assertNotIn("VITE_GOOGLE_WEB_CLIENT_ID", self.process_environment("SwiftDrop.Identity.Api"))
+        self.assertNotIn("Identity__Google__WebClientIds__0", self.process_environment("web"))
+
+    def test_host_google_explicit_audience_overrides_web_fallback_in_watch_mode(self):
+        self.environment["VITE_GOOGLE_WEB_CLIENT_ID"] = "web-client.apps.googleusercontent.com"
+        self.environment["IDENTITY_GOOGLE_WEB_CLIENT_ID"] = "server-client.apps.googleusercontent.com"
+        self.run_runner("up", "--mode", "host", "--watch")
+        identity = self.process_environment("SwiftDrop.Identity.Api")
+        self.assertEqual("server-client.apps.googleusercontent.com", identity["Identity__Google__WebClientIds__0"])
+        self.assertNotIn("IDENTITY_GOOGLE_WEB_CLIENT_ID", identity)
+        self.assertIn("watch", (self.calls / "SwiftDrop.Identity.Api.args").read_text().splitlines())
+        self.assertEqual("web-client.apps.googleusercontent.com", self.process_environment("web")["VITE_GOOGLE_WEB_CLIENT_ID"])
+
+    def test_host_google_client_id_reads_local_file_without_mutating_it(self):
+        with self.env_file.open("a", encoding="utf-8") as local:
+            local.write("IDENTITY_GOOGLE_WEB_CLIENT_ID=\nVITE_GOOGLE_WEB_CLIENT_ID=file-client.apps.googleusercontent.com\n")
+        self.original_env = self.env_file.read_bytes()
+        self.run_runner("up", "--mode", "host")
+        self.assertEqual("file-client.apps.googleusercontent.com", self.process_environment("SwiftDrop.Identity.Api")["Identity__Google__WebClientIds__0"])
+        self.assertEqual("file-client.apps.googleusercontent.com", self.process_environment("web")["VITE_GOOGLE_WEB_CLIENT_ID"])
 
     def test_proof_storage_is_delivery_only_and_export_overrides_file(self):
         mapping = {
