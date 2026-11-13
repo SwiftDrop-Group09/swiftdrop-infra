@@ -16,6 +16,8 @@ SECRET_NAMES = (
     "MERCHANT_DATABASE_CONNECTION_STRING",
     "NOTIFICATIONS_DATABASE_CONNECTION_STRING",
     "IDENTITY_MIGRATION_CONNECTION_STRING",
+    "DELIVERY_MIGRATION_CONNECTION_STRING",
+    "MERCHANT_MIGRATION_CONNECTION_STRING",
 )
 
 
@@ -80,6 +82,8 @@ class RunnerTests(unittest.TestCase):
         self.write_tool("npm", "exit 0\n")
         self.write_tool(
             "docker", 'printf "%s\\n" "$@" > "$MOCK_CALLS/docker.args"\n'
+            'printf "%s\\n" "$*" >> "$MOCK_CALLS/docker.sequence"\n'
+            'case "$*" in *identity-migrate*) exit "${MOCK_MIGRATION_EXIT:-0}" ;; esac\n'
         )
         self.write_tool(
             "dotnet",
@@ -98,7 +102,7 @@ class RunnerTests(unittest.TestCase):
             'name=${project##*/}\n'
             'printf "%s\\n" "$arguments" > "$MOCK_CALLS/$name.args"\n'
             'env > "$MOCK_CALLS/$name.env"\n'
-            'case "$arguments" in *--migrate*) exit 0 ;; esac\n'
+            'case "$arguments" in *--migrate*) printf "%s\\n" "$name" >> "$MOCK_CALLS/migrations"; exit "${MOCK_MIGRATION_EXIT:-0}" ;; esac\n'
             'attempt=0\n'
             'while [ ! -f "$MOCK_CALLS/web.env" ] || [ ! -f "$MOCK_CALLS/SwiftDrop.Gateway.env" ]; do\n'
             '  attempt=$((attempt + 1)); [ "$attempt" -lt 100 ] || exit 1; sleep 0.02\n'
@@ -145,7 +149,7 @@ class RunnerTests(unittest.TestCase):
             else:
                 self.assertNotIn(candidate, process_env, name)
 
-    def test_host_up_scopes_all_four_databases_and_never_migrates(self):
+    def test_host_up_scopes_all_four_databases_after_migrations(self):
         result = self.run_runner("up", "--mode", "host")
         # Mock processes exit immediately; the runner detects that and cleans up.
         self.assertNotEqual(0, result.returncode)
@@ -159,6 +163,7 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn("--migrate", (self.calls / f"{name}.args").read_text())
         self.assert_scoped("SwiftDrop.Gateway")
         self.assert_scoped("web")
+        self.assertEqual(["SwiftDrop.Identity.Api", "SwiftDrop.Delivery.Api", "SwiftDrop.Merchant.Api"], (self.calls / "migrations").read_text().splitlines())
         self.assert_scoped("build")
         build_args = (self.calls / "build.args").read_text().splitlines()
         self.assertEqual(["build", "SwiftDrop.sln", "--configuration", "Debug"], build_args)
@@ -236,15 +241,46 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(7, result.returncode, result.stdout)
         self.assertEqual(["build.env"], sorted(path.name for path in self.calls.glob("*.env")))
 
+    def test_docker_build_and_migrations_precede_start(self):
+        result = self.run_runner("up", "--build")
+        self.assertEqual(0, result.returncode, result.stdout)
+        calls = (self.calls / "docker.sequence").read_text().splitlines()
+        self.assertTrue(calls[0].endswith(" build"))
+        for call, task in zip(calls[1:4], ["identity-migrate", "delivery-migrate", "merchant-migrate"]):
+            self.assertTrue(call.endswith("run --rm --no-deps " + task))
+        self.assertTrue(calls[4].endswith("up -d"))
+
+    def test_docker_migration_failure_prevents_start(self):
+        self.environment["MOCK_MIGRATION_EXIT"] = "7"
+        result = self.run_runner("up")
+        self.assertNotEqual(0, result.returncode)
+        calls = (self.calls / "docker.sequence").read_text().splitlines()
+        self.assertEqual(1, len(calls))
+        self.assertTrue(calls[0].endswith("identity-migrate"))
+
+    def test_failed_migration_prevents_host_start(self):
+        self.environment["MOCK_MIGRATION_EXIT"] = "7"
+        result = self.run_runner("up", "--mode", "host")
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.calls / "web.env").exists())
+        self.assertFalse((self.calls / "SwiftDrop.Gateway.env").exists())
+        self.assertEqual(["SwiftDrop.Identity.Api"], (self.calls / "migrations").read_text().splitlines())
+
     def test_delivery_host_migration_receives_only_delivery_database(self):
         result = self.run_runner("migrate", "--mode", "host", "delivery-service")
         self.assertEqual(0, result.returncode, result.stdout)
         self.assert_scoped(
             "SwiftDrop.Delivery.Api", "ConnectionStrings__Database",
-            self.secrets["DELIVERY_DATABASE_CONNECTION_STRING"],
+            self.secrets["DELIVERY_MIGRATION_CONNECTION_STRING"],
         )
         self.assertIn("--migrate", (self.calls / "SwiftDrop.Delivery.Api.args").read_text())
-        self.assertEqual(2, len(list(self.calls.iterdir())))
+        self.assertEqual(3, len(list(self.calls.iterdir())))
+
+    def test_delivery_owner_credentials_are_only_used_for_migration(self):
+        self.run_runner("migrate", "--mode", "host", "delivery-service")
+        self.assert_scoped("SwiftDrop.Delivery.Api", "ConnectionStrings__Database", self.secrets["DELIVERY_MIGRATION_CONNECTION_STRING"])
+        self.run_runner("up", "--mode", "host")
+        self.assert_scoped("SwiftDrop.Delivery.Api", "ConnectionStrings__Database", self.secrets["DELIVERY_DATABASE_CONNECTION_STRING"])
 
     def test_identity_host_migration_receives_only_identity_migration_database(self):
         result = self.run_runner("migrate", "--mode", "host", "identity-service")
@@ -256,6 +292,7 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("--migrate", (self.calls / "SwiftDrop.Identity.Api.args").read_text())
 
     def test_local_file_is_data_and_supports_windows_line_endings(self):
+        self.environment["DELIVERY_MIGRATION_CONNECTION_STRING"] = ""
         for secret in SECRET_NAMES:
             self.environment.pop(secret, None)
         connection = "Host=neon.invalid;Password=$(touch injected);Database=swiftdrop_delivery"
@@ -269,6 +306,7 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(list(self.root.rglob("injected")))
 
     def test_placeholder_migration_connection_fails_before_launch(self):
+        self.environment["DELIVERY_MIGRATION_CONNECTION_STRING"] = ""
         self.environment["DELIVERY_DATABASE_CONNECTION_STRING"] = "REPLACE_WITH_PRIVATE_CONNECTION"
         result = self.run_runner("migrate", "--mode", "host", "delivery-service")
         self.assertNotEqual(0, result.returncode)
@@ -276,6 +314,7 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(list(self.calls.iterdir()))
 
     def test_empty_export_overrides_populated_local_connection(self):
+        self.environment["DELIVERY_MIGRATION_CONNECTION_STRING"] = ""
         self.environment["DELIVERY_DATABASE_CONNECTION_STRING"] = ""
         result = self.run_runner("migrate", "--mode", "host", "delivery-service")
         self.assertNotEqual(0, result.returncode)

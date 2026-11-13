@@ -22,7 +22,8 @@ Docker is the default mode. Host mode starts backend and frontend processes
 directly; stop with Ctrl-C. Use --watch with host mode to enable backend hot
 reload; without it, host mode uses normal dotnet run. Docker build/start is
 required before PR merge.
-Migrations are explicit one-shot tasks; up never applies database migrations.
+Before up starts services, pending Identity, Delivery and Merchant migrations
+are applied. Startup stops if a migration fails.
 EOF
 }
 
@@ -107,6 +108,10 @@ read_optional_env_value() {
       value=${IDENTITY_MIGRATION_CONNECTION_STRING-}
       present=${IDENTITY_MIGRATION_CONNECTION_STRING+1}
       ;;
+    DELIVERY_MIGRATION_CONNECTION_STRING)
+      value=${DELIVERY_MIGRATION_CONNECTION_STRING-}
+      present=${DELIVERY_MIGRATION_CONNECTION_STRING+1}
+      ;;
     MERCHANT_MIGRATION_CONNECTION_STRING)
       value=${MERCHANT_MIGRATION_CONNECTION_STRING-}
       present=${MERCHANT_MIGRATION_CONNECTION_STRING+1}
@@ -158,7 +163,7 @@ clear_child_secrets() {
   # A caller may export all six inputs. Give each app only its owning setting.
   unset RABBITMQ_DEFAULT_PASS IDENTITY_DATABASE_CONNECTION_STRING \
     DELIVERY_DATABASE_CONNECTION_STRING MERCHANT_DATABASE_CONNECTION_STRING \
-    NOTIFICATIONS_DATABASE_CONNECTION_STRING IDENTITY_MIGRATION_CONNECTION_STRING \
+    NOTIFICATIONS_DATABASE_CONNECTION_STRING IDENTITY_MIGRATION_CONNECTION_STRING DELIVERY_MIGRATION_CONNECTION_STRING MERCHANT_MIGRATION_CONNECTION_STRING \
     ConnectionStrings__Database ConnectionStrings__MigrationDatabase \
     IDENTITY_GOOGLE_WEB_CLIENT_ID VITE_GOOGLE_WEB_CLIENT_ID Identity__Google__WebClientIds__0 \
     DELIVERY_PROOF_STORAGE_ENDPOINT \
@@ -305,7 +310,8 @@ run_host_migration() {
       migration_project=src/Services/Identity/SwiftDrop.Identity.Api
       ;;
     delivery-service)
-      migration_connection=$(read_optional_env_value DELIVERY_DATABASE_CONNECTION_STRING)
+      migration_connection=$(read_optional_env_value DELIVERY_MIGRATION_CONNECTION_STRING)
+      [ -n "$migration_connection" ] || migration_connection=$(read_optional_env_value DELIVERY_DATABASE_CONNECTION_STRING)
       migration_setting=ConnectionStrings__Database
       migration_project=src/Services/Delivery/SwiftDrop.Delivery.Api
       ;;
@@ -330,8 +336,13 @@ run_host_migration() {
     clear_child_secrets
     export ASPNETCORE_ENVIRONMENT=Development DOTNET_ENVIRONMENT=Development
     export "$migration_setting=$migration_connection"
-    exec dotnet run --no-launch-profile --project "$migration_project" -- --migrate
-  )
+    dotnet run --no-launch-profile --project "$migration_project" -- --migrate
+  ) || {
+    printf 'Migration failed for %s. Startup stopped; no reset or downgrade was requested.\n' "$service" >&2
+    printf 'For permission errors, configure the owning *_MIGRATION_CONNECTION_STRING with a schema-owner login for the SAME database. Do not elevate the runtime login.\n' >&2
+    return 1
+  }
+  # Migration commands apply pending versions only; never reset or recreate data.
 }
 
 start_host_stack() {
@@ -371,6 +382,11 @@ start_host_stack() {
     clear_child_secrets
     dotnet build SwiftDrop.sln --configuration Debug
   )
+
+  # Run versioned migrations sequentially before starting any application.
+  for migration_service in identity-service delivery-service merchant-service; do
+    ( service=$migration_service; run_host_migration )
+  done
 
   mkdir -p "$log_dir"
   start_process() {
@@ -541,17 +557,24 @@ case "$action" in
     case "$service" in
       identity-service) migration_task=identity-migrate ;;
       delivery-service) migration_task=delivery-migrate ;;
+      merchant-service) migration_task=merchant-migrate ;;
     esac
     compose --profile database-migrations run --rm --no-deps "$migration_task"
     ;;
   up)
+    # Build first so migration tasks use the same images as the application.
     if [ "$build" -eq 1 ]; then
       if [ -n "$service" ]; then
-        compose up -d --build "$service"
+        compose build identity-service delivery-service merchant-service "$service"
       else
-        compose up -d --build
+        compose build
       fi
-    elif [ -n "$service" ]; then
+    fi
+    for migration_task in identity-migrate delivery-migrate merchant-migrate; do
+      printf 'Checking and applying %s database migrations...\n' "$migration_task"
+      compose --profile database-migrations run --rm --no-deps "$migration_task"
+    done
+    if [ -n "$service" ]; then
       compose up -d "$service"
     else
       compose up -d
