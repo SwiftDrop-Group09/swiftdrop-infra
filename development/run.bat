@@ -294,7 +294,7 @@ set "MIG_CONN="
 for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do (
     if "%SERVICE%"=="identity-service" if "%%A"=="IDENTITY_MIGRATION_CONNECTION_STRING" set "MIG_CONN=%%B"
     if "%SERVICE%"=="delivery-service" if "%%A"=="DELIVERY_DATABASE_CONNECTION_STRING" set "MIG_CONN=%%B"
-    if "%SERVICE%"=="notification-worker" if "%%A"=="NOTIFICATIONS_DATABASE_CONNECTION_STRING" set "MIG_CONN=%%B"
+    if "%SERVICE%"=="notification-worker" if "%%A"=="NOTIFICATIONS_MIGRATION_CONNECTION_STRING" set "MIG_CONN=%%B"
 )
 if "%SERVICE%"=="identity-service" (
     set "MIG_SETTING=ConnectionStrings__MigrationDatabase"

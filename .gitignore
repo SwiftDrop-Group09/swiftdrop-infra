@@ -3,5 +3,6 @@
 !.env.example
 !.gitignore
 /development/.env
+/development/secrets/
 /k8s/secrets/*.env
 *.log

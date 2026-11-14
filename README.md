@@ -197,7 +197,8 @@ the examples contain placeholders only.
 | `IDENTITY_DATABASE_CONNECTION_STRING`      | Identity `ConnectionStrings__Database`, database `swiftdrop_identity`                                            |
 | `DELIVERY_DATABASE_CONNECTION_STRING`      | Delivery `ConnectionStrings__Database`, database `swiftdrop_delivery`; also the explicit Delivery migration task |
 | `MERCHANT_DATABASE_CONNECTION_STRING`      | Merchant `ConnectionStrings__Database`, database `swiftdrop_merchant`                                            |
-| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker database `swiftdrop_notifications`, runtime and explicit migration task                     |
+| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker runtime database `swiftdrop_notifications`                                                  |
+| `NOTIFICATIONS_MIGRATION_CONNECTION_STRING` | Explicit Notification Worker migration task; DDL-capable role on `swiftdrop_notifications`                       |
 | `IDENTITY_MIGRATION_CONNECTION_STRING`     | Explicit Identity task's `ConnectionStrings__MigrationDatabase`, database `swiftdrop_identity`                   |
 
 For Docker mode, Compose maps the Worker credential to
@@ -209,13 +210,25 @@ Run `development/run.sh migrate notification-worker` (or
 `development\run.bat migrate notification-worker` on Windows) after provisioning
 the Notifications database and before enabling the consumer.
 
+For internal routing, mount privately provisioned, short-lived worker service
+JWTs as `development/secrets/delivery.jwt` and `development/secrets/merchant.jwt`.
+Compose mounts this directory read-only into the Worker and reads each file on
+every dispatch, allowing token rotation by replacing the file. The Delivery token
+must use `aud=delivery-internal` and `scope=notifications:resolve`; the Merchant
+token must use `aud=merchant-internal` and `scope=webhooks:dispatch`; both require
+the configured Identity issuer and a lifetime no longer than five minutes. The
+Worker does not mint tokens, and these files must not be committed.
+
 Review the backend's generated migration SQL before applying it to a shared
 database. Provision the roles and permissions privately; the runner creates no
 roles or grants. Identity uses its separately provisioned DDL-capable migration
 login. Delivery reuses its existing secret for migration, so the role supplied
 for that explicit task must own or have the necessary DDL rights on the Delivery
 schema and its tables, functions and triggers, plus the EF migration history.
-No extra Delivery migration secret or fixed database role name is required.
+Notification Worker uses its separate migration login; grant it the DDL rights
+needed to create the schema objects and EF migration history. Runtime roles
+remain separate and restricted. No extra Delivery migration secret or fixed
+database role name is required.
 Keep runtime privileges restricted after migration as your deployment policy
 requires; schema permissions must be verified before running either task.
 
@@ -326,12 +339,12 @@ ACLs, no resource-policy Allow and server-side encryption. Missing storage
 configuration fails completion without committing Delivered. No shared MinIO
 container or automatic bucket provisioning is introduced.
 
-The eight database/broker inputs are listed above. No real Neon or bucket migration
+The database/broker inputs are listed above. No real Neon or bucket migration
 is performed by runner tests; they use synthetic inputs and disposable fixtures.
 
 Kubernetes manifests are separate from this developer workflow. See
 `k8s/` for that optional baseline; it has not been runtime-tested and still
-contains future broker/object-store credentials outside the current eight-secret
+contains future broker/object-store credentials outside the current local setup
 workflow. Reconcile it with implemented adapters before deploying it.
 
 Run the runner checks without Docker or Neon:
