@@ -1,0 +1,132 @@
+# Default-deny ingress for all workloads in the SwiftDrop namespace.
+# Only explicitly permitted ingress paths below are allowed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Allow ingress controller (and same-namespace traffic) to reach gateway on 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+---
+# Allow gateway and internal services (JWKS) to reach identity-service on 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-identity-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: identity-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway
+        - podSelector:
+            matchLabels:
+              app: delivery-service
+        - podSelector:
+            matchLabels:
+              app: merchant-service
+        - podSelector:
+            matchLabels:
+              app: notification-worker
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Allow gateway, merchant-service (gRPC), and notification-worker to reach delivery-service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-delivery-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: delivery-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway
+        - podSelector:
+            matchLabels:
+              app: notification-worker
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app: merchant-service
+      ports:
+        - protocol: TCP
+          port: 8081
+---
+# Allow gateway and notification-worker to reach merchant-service on 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-merchant-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: merchant-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway
+        - podSelector:
+            matchLabels:
+              app: notification-worker
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Allow delivery-service and notification-worker (future broker integration) to reach RabbitMQ.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rabbitmq-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: delivery-service
+        - podSelector:
+            matchLabels:
+              app: notification-worker
+      ports:
+        - protocol: TCP
+          port: 5672
+

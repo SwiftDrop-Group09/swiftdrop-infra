@@ -1,0 +1,84 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: swiftdrop-prod
+resources:
+  - ../../base
+
+images:
+  - name: swiftdrop/gateway
+    newName: ghcr.io/swiftdrop-group09/swiftdrop-gateway
+    newTag: latest
+  - name: swiftdrop/identity
+    newName: ghcr.io/swiftdrop-group09/swiftdrop-identity
+    newTag: latest
+  - name: swiftdrop/delivery
+    newName: ghcr.io/swiftdrop-group09/swiftdrop-delivery
+    newTag: latest
+  - name: swiftdrop/merchant
+    newName: ghcr.io/swiftdrop-group09/swiftdrop-merchant
+    newTag: latest
+  - name: swiftdrop/notification-worker
+    newName: ghcr.io/swiftdrop-group09/swiftdrop-notification-worker
+    newTag: latest
+
+patches:
+  - target:
+      kind: Namespace
+      name: swiftdrop
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: swiftdrop-prod
+  - path: delete-web.yaml
+  - path: delete-web-service.yaml
+  - path: ingress-http.yaml
+  - target:
+      kind: Ingress
+      name: swiftdrop
+    patch: |-
+      - op: remove
+        path: /spec/tls
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+  - target:
+      kind: ConfigMap
+      name: gateway-config
+    patch: |-
+      - op: replace
+        path: /data/Web__Origin
+        value: http://api.swiftdrop.example.com
+  - target:
+      kind: ConfigMap
+      name: identity-config
+    patch: |-
+      - op: replace
+        path: /data/Identity__Tokens__Issuer
+        value: http://api.swiftdrop.example.com
+      - op: replace
+        path: /data/Identity__Browser__AllowedOrigins__0
+        value: https://swiftdrop.vercel.app
+  - target:
+      kind: ConfigMap
+      name: delivery-config
+    patch: |-
+      - op: replace
+        path: /data/Identity__Tokens__Issuer
+        value: http://api.swiftdrop.example.com
+  - target:
+      kind: ConfigMap
+      name: merchant-config
+    patch: |-
+      - op: replace
+        path: /data/Identity__Tokens__Issuer
+        value: http://api.swiftdrop.example.com
+  - target:
+      kind: ConfigMap
+      name: notifications-config
+    patch: |-
+      - op: replace
+        path: /data/Identity__Tokens__Issuer
+        value: http://api.swiftdrop.example.com

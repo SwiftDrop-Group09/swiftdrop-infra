@@ -45,7 +45,7 @@ services:
       Identity__Browser__AllowedOrigins__3: http://127.0.0.1:5000
       Identity__Browser__AllowedOrigins__4: http://localhost
       Identity__Browser__AllowedOrigins__5: http://127.0.0.1
-      Identity__Google__WebClientIds__0: ${IDENTITY_GOOGLE_WEB_CLIENT_ID:-}
+      Identity__Google__WebClientIds__0: ${IDENTITY_GOOGLE_WEB_CLIENT_ID:-${VITE_GOOGLE_WEB_CLIENT_ID:-}}
       Identity__Proxy__KnownProxies__0: 127.0.0.1
       Identity__Proxy__KnownProxies__1: 172.28.0.10
       Identity__Proxy__KnownProxies__2: 172.28.0.11
@@ -55,7 +55,7 @@ services:
         ipv4_address: 172.28.0.12
     volumes:
       - identity-keys:/tmp/swiftdrop/identity
-      - identity-dataprotection:/root/.aspnet/DataProtection-Keys
+      - identity-dataprotection:/home/app/.aspnet/DataProtection-Keys
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 10s
@@ -84,6 +84,10 @@ services:
       Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
       Kestrel__Endpoints__Grpc__Url: http://0.0.0.0:8081
       ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
+      Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
+      Identity__Tokens__Audience: swiftdrop-api-local
+      Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
+      Identity__Tokens__AllowInsecureJwks: "true"
       Operations__TimeZone: Asia/Colombo
       ProofStorage__Endpoint: ${DELIVERY_PROOF_STORAGE_ENDPOINT:-}
       ProofStorage__Bucket: ${DELIVERY_PROOF_STORAGE_BUCKET:-}
@@ -105,7 +109,7 @@ services:
     image: swiftdrop/delivery:dev
     command: ["SwiftDrop.Delivery.Api.dll", "--migrate"]
     environment:
-      ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
+      ConnectionStrings__Database: ${DELIVERY_MIGRATION_CONNECTION_STRING:-${DELIVERY_DATABASE_CONNECTION_STRING:-}}
     restart: "no"
 
   merchant-service:
@@ -132,6 +136,14 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  merchant-migrate:
+    profiles: ["database-migrations"]
+    image: swiftdrop/merchant:dev
+    command: ["SwiftDrop.Merchant.Api.dll", "--migrate"]
+    environment:
+      ConnectionStrings__Database: ${MERCHANT_MIGRATION_CONNECTION_STRING:-${MERCHANT_DATABASE_CONNECTION_STRING:-}}
+    restart: "no"
 
   notification-worker:
     image: swiftdrop/notification-worker:dev
