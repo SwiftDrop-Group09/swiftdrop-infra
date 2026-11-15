@@ -25,6 +25,22 @@ uses it to generate the local RabbitMQ password. `run.sh` needs a POSIX shell
 
 ## Run the development stack
 
+Courier/Merchant order reconciliation in **host mode** can be enabled with one
+private `MERCHANT_DELIVERY_SERVICE_KEY` (32–256 printable ASCII characters) in the
+ignored `development/.env` or exported environment. Use a random 64-character hex
+value. The runner passes it only to Delivery and Merchant, selects the real gRPC
+client and uses the local HTTP/2 listener at `127.0.0.3:8081`. It never gives the
+credential to the browser, Gateway, Identity or Notification. Leave it blank to
+retain the unconfigured, fail-closed order adapter. Existing versioned migrations
+run before startup and never reset data.
+
+Docker/production service connections require a private HTTPS listener and
+certificate configuration; the existing Compose definition does not provision
+this TLS connection. Do not forward the private gRPC endpoint through the public
+gateway or enable development cleartext options in Production. See the
+[backend connection guide](../swiftdrop-backend/docs/courier-workspace-experience.md)
+for per-project user-secret commands and the event/webhook integration boundary.
+
 Keep the infra, backend, and frontend repositories as siblings:
 
 ```text

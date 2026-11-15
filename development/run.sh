@@ -100,6 +100,10 @@ read_optional_env_value() {
       value=${MERCHANT_DATABASE_CONNECTION_STRING-}
       present=${MERCHANT_DATABASE_CONNECTION_STRING+1}
       ;;
+    MERCHANT_DELIVERY_SERVICE_KEY)
+      value=${MERCHANT_DELIVERY_SERVICE_KEY-}
+      present=${MERCHANT_DELIVERY_SERVICE_KEY+1}
+      ;;
     NOTIFICATIONS_DATABASE_CONNECTION_STRING)
       value=${NOTIFICATIONS_DATABASE_CONNECTION_STRING-}
       present=${NOTIFICATIONS_DATABASE_CONNECTION_STRING+1}
@@ -161,7 +165,11 @@ read_optional_env_value() {
 
 clear_child_secrets() {
   # A caller may export all six inputs. Give each app only its owning setting.
-  unset RABBITMQ_DEFAULT_PASS IDENTITY_DATABASE_CONNECTION_STRING \
+  unset RABBITMQ_DEFAULT_PASS MERCHANT_DELIVERY_SERVICE_KEY \
+    MerchantIntegration__ServiceKey MerchantIntegration__AllowInsecureTransport \
+    Merchant__Orders__Delivery__ServiceKey Merchant__Orders__Delivery__Address \
+    Merchant__Orders__Delivery__Client Merchant__Orders__Delivery__AllowInsecureTransport \
+    IDENTITY_DATABASE_CONNECTION_STRING \
     DELIVERY_DATABASE_CONNECTION_STRING MERCHANT_DATABASE_CONNECTION_STRING \
     NOTIFICATIONS_DATABASE_CONNECTION_STRING IDENTITY_MIGRATION_CONNECTION_STRING DELIVERY_MIGRATION_CONNECTION_STRING MERCHANT_MIGRATION_CONNECTION_STRING \
     ConnectionStrings__Database ConnectionStrings__MigrationDatabase \
@@ -351,6 +359,11 @@ start_host_stack() {
   identity_connection_string=$(read_optional_env_value IDENTITY_DATABASE_CONNECTION_STRING)
   delivery_connection_string=$(read_optional_env_value DELIVERY_DATABASE_CONNECTION_STRING)
   merchant_connection_string=$(read_optional_env_value MERCHANT_DATABASE_CONNECTION_STRING)
+  merchant_delivery_service_key=$(read_optional_env_value MERCHANT_DELIVERY_SERVICE_KEY)
+  if [ -n "$merchant_delivery_service_key" ] && { [ "${#merchant_delivery_service_key}" -lt 32 ] || [ "${#merchant_delivery_service_key}" -gt 256 ]; }; then
+    printf 'MERCHANT_DELIVERY_SERVICE_KEY must contain 32-256 printable ASCII characters.\n' >&2
+    return 1
+  fi
   notifications_connection_string=$(read_optional_env_value NOTIFICATIONS_DATABASE_CONNECTION_STRING)
   web_google_client_id=$(read_optional_env_value VITE_GOOGLE_WEB_CLIENT_ID)
   identity_google_client_id=$(read_optional_env_value IDENTITY_GOOGLE_WEB_CLIENT_ID)
@@ -413,6 +426,10 @@ start_host_stack() {
           ;;
         delivery-service)
           export ConnectionStrings__Database="$delivery_connection_string"
+          if [ -n "$merchant_delivery_service_key" ]; then
+            export MerchantIntegration__ServiceKey="$merchant_delivery_service_key"
+            export MerchantIntegration__AllowInsecureTransport=true
+          fi
           export Identity__Tokens__Issuer="https://identity.swiftdrop.invalid"
           export Identity__Tokens__Audience="swiftdrop-api-local"
           export Identity__Tokens__JwksUrl="http://127.0.0.2:8080/.well-known/jwks.json"
@@ -426,6 +443,12 @@ start_host_stack() {
           ;;
         merchant-service)
           export ConnectionStrings__Database="$merchant_connection_string"
+          if [ -n "$merchant_delivery_service_key" ]; then
+            export Merchant__Orders__Delivery__Client=Grpc
+            export Merchant__Orders__Delivery__Address=http://127.0.0.3:8081
+            export Merchant__Orders__Delivery__ServiceKey="$merchant_delivery_service_key"
+            export Merchant__Orders__Delivery__AllowInsecureTransport=true
+          fi
           export Identity__Tokens__Issuer="https://identity.swiftdrop.invalid"
           export Identity__Tokens__Audience="swiftdrop-api-local"
           export Identity__Tokens__JwksUrl="http://127.0.0.2:8080/.well-known/jwks.json"
