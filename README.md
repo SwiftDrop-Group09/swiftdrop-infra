@@ -111,17 +111,17 @@ take up to a minute after `up` returns before their health checks pass.
 The runner handles the common commands and can target one service. Replace
 `./development/run.sh` with `development\run.bat` on Windows.
 
-| Command                                                            | What it does                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `up --mode docker --build`                                       | Build images and start the whole stack (default mode is `docker`) |
-| `up`                                                             | Start the stack using existing images (no rebuild)                  |
-| `up --build delivery-service`                                    | Rebuild and start one service                                       |
-| `up --mode host`                                                 | Run the backend and frontend directly on your machine               |
-| `build [service]`                                                | Build images only                                                   |
-| `ps`                                                             | Show container status                                               |
-| `logs [service]`                                                 | Follow logs (see [Viewing logs](#viewing-logs))                      |
-| `config`                                                         | Validate the Compose configuration (`config --quiet`)             |
-| `down`                                                           | Stop and remove the containers; the RabbitMQ data volume is kept    |
+| Command                                                                             | What it does                                                        |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `up --mode docker --build`                                                        | Build images and start the whole stack (default mode is `docker`) |
+| `up`                                                                              | Start the stack using existing images (no rebuild)                  |
+| `up --build delivery-service`                                                     | Rebuild and start one service                                       |
+| `up --mode host`                                                                  | Run the backend and frontend directly on your machine               |
+| `build [service]`                                                                 | Build images only                                                   |
+| `ps`                                                                              | Show container status                                               |
+| `logs [service]`                                                                  | Follow logs (see [Viewing logs](#viewing-logs))                      |
+| `config`                                                                          | Validate the Compose configuration (`config --quiet`)             |
+| `down`                                                                            | Stop and remove the containers; the RabbitMQ data volume is kept    |
 | `migrate [--mode docker\|host] identity-service\|delivery-service\|merchant-service` | Run one explicit database migration                                 |
 
 Supported service names: `rabbitmq`, `identity-service`, `delivery-service`,
