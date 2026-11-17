@@ -19,6 +19,20 @@ services:
       timeout: 5s
       retries: 20
 
+  rabbitmq-bootstrap:
+    image: curlimages/curl:8.12.1
+    entrypoint: ["/bin/sh", "/provision-rabbitmq-users.sh"]
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Run development/run.sh to initialize local configuration}
+      DELIVERY_BROKER_PASSWORD: ${DELIVERY_BROKER_PASSWORD:?Run development/run.sh to initialize local configuration}
+      WORKER_BROKER_PASSWORD: ${WORKER_BROKER_PASSWORD:?Run development/run.sh to initialize local configuration}
+    volumes:
+      - ./provision-rabbitmq-users.sh:/provision-rabbitmq-users.sh:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: "no"
+
   identity-service:
     image: swiftdrop/identity:dev
     build:
@@ -74,6 +88,26 @@ services:
       ConnectionStrings__MigrationDatabase: ${IDENTITY_MIGRATION_CONNECTION_STRING:-}
     restart: "no"
 
+  identity-workload-token-provisioner:
+    image: swiftdrop/identity:dev
+    build:
+      context: ../../swiftdrop-backend
+      dockerfile: Dockerfile
+      args:
+        PROJECT_FILE: src/Services/Identity/SwiftDrop.Identity.Api/SwiftDrop.Identity.Api.csproj
+    command: ["SwiftDrop.Identity.Api.dll", "--run-development-workload-token-provisioner"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_ENVIRONMENT: Development
+      Identity__DevelopmentWorkloadTokens__Directory: /run/swiftdrop/workload-tokens
+    volumes:
+      - identity-keys:/tmp/swiftdrop/identity:ro
+      - workload-tokens:/run/swiftdrop/workload-tokens
+    depends_on:
+      identity-service:
+        condition: service_healthy
+    restart: unless-stopped
+
   delivery-service:
     image: swiftdrop/delivery:dev
     build:
@@ -115,6 +149,33 @@ services:
     environment:
       ConnectionStrings__Database: ${DELIVERY_DATABASE_CONNECTION_STRING:-}
     restart: "no"
+
+  delivery-outbox-relay:
+    image: swiftdrop/delivery-outbox-relay:dev
+    build:
+      context: ../../swiftdrop-backend
+      dockerfile: Dockerfile
+      args:
+        PROJECT_FILE: src/Workers/SwiftDrop.Delivery.OutboxRelay/SwiftDrop.Delivery.OutboxRelay.csproj
+    command: ["SwiftDrop.Delivery.OutboxRelay.dll"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      DOTNET_ENVIRONMENT: Production
+      Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
+      ConnectionStrings__DeliveryDatabase: ${DELIVERY_OUTBOX_DATABASE_CONNECTION_STRING:-}
+      OutboxRelay__Broker__Host: rabbitmq
+      OutboxRelay__Broker__Username: delivery_bus
+      OutboxRelay__Broker__Password: ${DELIVERY_BROKER_PASSWORD:?Run development/run.sh to initialize local configuration}
+      OutboxRelay__Broker__VirtualHost: /
+    depends_on:
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   notification-migrate:
     profiles: ["database-migrations"]
@@ -166,13 +227,17 @@ services:
       Notification__Broker__VirtualHost: /
       Notification__Broker__Username: worker_bus
       Notification__Broker__Password: ${WORKER_BROKER_PASSWORD:-}
-      Notification__ServiceTokenFiles__Delivery: /run/secrets/swiftdrop/delivery.jwt
-      Notification__ServiceTokenFiles__Merchant: /run/secrets/swiftdrop/merchant.jwt
+      Notification__ServiceTokenFiles__Delivery: /run/swiftdrop/workload-tokens/delivery.jwt
+      Notification__ServiceTokenFiles__Merchant: /run/swiftdrop/workload-tokens/merchant.jwt
     volumes:
-      - ./secrets:/run/secrets/swiftdrop:ro
+      - workload-tokens:/run/swiftdrop/workload-tokens:ro
     depends_on:
       rabbitmq:
         condition: service_healthy
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
+      identity-workload-token-provisioner:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 10s
@@ -241,3 +306,4 @@ volumes:
   rabbitmq-data:
   identity-dataprotection:
   identity-keys:
+  workload-tokens:

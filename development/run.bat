@@ -78,7 +78,7 @@ if not "%MODE%"=="docker" if not "%MODE%"=="host" (
 
 if not "%SERVICE%"=="" (
     set "VALID_SVC=0"
-    for %%s in (rabbitmq identity-service delivery-service merchant-service notification-worker gateway web) do (
+    for %%s in (rabbitmq identity-service delivery-service delivery-outbox-relay merchant-service notification-worker gateway web) do (
         if "%SERVICE%"=="%%s" set "VALID_SVC=1"
     )
     if "!VALID_SVC!"=="0" (
@@ -249,9 +249,6 @@ if not exist "%ENV_FILE%" (
     copy "%EXAMPLE_FILE%" "%ENV_FILE%" >nul
 )
 
-REM A password exported in the environment always wins.
-if defined RABBITMQ_DEFAULT_PASS exit /b 0
-
 REM If the file still holds the GENERATE_LOCALLY placeholder, generate one.
 findstr /R /C:"^RABBITMQ_DEFAULT_PASS=GENERATE_LOCALLY" "%ENV_FILE%" >nul
 if not errorlevel 1 goto :generate_rabbit_pass
@@ -280,8 +277,18 @@ if errorlevel 1 (
 echo Generated a local RabbitMQ password in %ENV_FILE%
 
 :check_signing_key
+call :ensure_application_broker_passwords
+if errorlevel 1 exit /b 1
 if not exist "%TEMP%\swiftdrop\identity" (
     mkdir "%TEMP%\swiftdrop\identity" 2>nul
+)
+exit /b 0
+
+:ensure_application_broker_passwords
+powershell -NoProfile -Command "$c = [System.Collections.Generic.List[string]](Get-Content -LiteralPath '%ENV_FILE%'); foreach ($k in @('DELIVERY_BROKER_PASSWORD','WORKER_BROKER_PASSWORD')) { $i = -1; for ($n=0; $n -lt $c.Count; $n++) { if ($c[$n] -match ('^' + $k + '=')) { $i = $n; break } }; if ($i -lt 0 -or $c[$i] -match ('^' + $k + '=(GENERATE_LOCALLY)?$')) { $b = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $v = [System.BitConverter]::ToString($b).Replace('-', '').ToLowerInvariant(); if ($i -lt 0) { $c.Add($k + '=' + $v) } else { $c[$i] = $k + '=' + $v } } }; Set-Content -LiteralPath '%ENV_FILE%' -Value $c -Encoding ASCII"
+if errorlevel 1 (
+    echo Failed to generate local RabbitMQ application passwords >&2
+    exit /b 1
 )
 exit /b 0
 
