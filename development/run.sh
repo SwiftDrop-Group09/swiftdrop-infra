@@ -11,11 +11,11 @@ usage() {
   cat <<'EOF'
 Usage:
   development/run.sh up [--mode docker|host] [--watch] [--build] [service]
-  development/run.sh migrate [--mode docker|host] identity-service|delivery-service|merchant-service
+  development/run.sh migrate [--mode docker|host] identity-service|delivery-service|merchant-service|notification-worker
   development/run.sh build [service]              # Docker image build
   development/run.sh down|ps|logs|config          # Docker Compose
 
-Services: rabbitmq, identity-service, delivery-service, merchant-service,
+Services: rabbitmq, identity-service, delivery-service, delivery-outbox-relay, merchant-service,
           notification-worker, gateway, web
 
 Docker is the default mode. Host mode starts backend and frontend processes
@@ -33,34 +33,33 @@ initialize_env() {
     chmod 600 "$env_file"
   fi
 
-  if [ -n "${RABBITMQ_DEFAULT_PASS:-}" ]; then
-    chmod 600 "$env_file"
-    return
-  fi
-
-  if ! grep -Eq '^RABBITMQ_DEFAULT_PASS=.+$' "$env_file" \
-    || grep -Eq '^RABBITMQ_DEFAULT_PASS=GENERATE_LOCALLY$' "$env_file"; then
-    if ! command -v openssl >/dev/null 2>&1; then
-      printf 'openssl is required to generate a local RabbitMQ password\n' >&2
-      exit 1
+  for password_key in RABBITMQ_DEFAULT_PASS DELIVERY_BROKER_PASSWORD WORKER_BROKER_PASSWORD; do
+    eval "password_override=\${$password_key-}"
+    if [ -n "$password_override" ]; then
+      continue
     fi
-    password=$(openssl rand -hex 24)
-    temp_file="$env_file.tmp.$$"
-    awk -v password="$password" '
-      /^RABBITMQ_DEFAULT_PASS=/ {
-        print "RABBITMQ_DEFAULT_PASS=" password
-        found = 1
-        next
-      }
-      { print }
-      END {
-        if (!found) print "RABBITMQ_DEFAULT_PASS=" password
-      }
-    ' "$env_file" > "$temp_file"
-    mv "$temp_file" "$env_file"
-    chmod 600 "$env_file"
-    printf 'Created %s with a generated local RabbitMQ password\n' "$env_file"
-  fi
+    current_password=$(awk -F= -v key="$password_key" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$env_file")
+    if [ -z "$current_password" ] || [ "$current_password" = GENERATE_LOCALLY ]; then
+      if ! command -v openssl >/dev/null 2>&1; then
+        printf 'openssl is required to generate a local RabbitMQ password\n' >&2
+        exit 1
+      fi
+      password=$(openssl rand -hex 24)
+      temp_file="$env_file.tmp.$$"
+      awk -v key="$password_key" -v password="$password" '
+        index($0, key "=") == 1 {
+          print key "=" password
+          found = 1
+          next
+        }
+        { print }
+        END {
+          if (!found) print key "=" password
+        }
+      ' "$env_file" > "$temp_file"
+      mv "$temp_file" "$env_file"
+    fi
+  done
   chmod 600 "$env_file"
 
   if [ ! -f /tmp/swiftdrop/identity/development.pem ]; then
@@ -107,6 +106,14 @@ read_optional_env_value() {
     NOTIFICATIONS_DATABASE_CONNECTION_STRING)
       value=${NOTIFICATIONS_DATABASE_CONNECTION_STRING-}
       present=${NOTIFICATIONS_DATABASE_CONNECTION_STRING+1}
+      ;;
+    NOTIFICATIONS_MIGRATION_CONNECTION_STRING)
+      value=${NOTIFICATIONS_MIGRATION_CONNECTION_STRING-}
+      present=${NOTIFICATIONS_MIGRATION_CONNECTION_STRING+1}
+      ;;
+    DELIVERY_OUTBOX_DATABASE_CONNECTION_STRING)
+      value=${DELIVERY_OUTBOX_DATABASE_CONNECTION_STRING-}
+      present=${DELIVERY_OUTBOX_DATABASE_CONNECTION_STRING+1}
       ;;
     IDENTITY_MIGRATION_CONNECTION_STRING)
       value=${IDENTITY_MIGRATION_CONNECTION_STRING-}
@@ -185,7 +192,7 @@ clear_child_secrets() {
 
 valid_service() {
   case "$1" in
-    rabbitmq|identity-service|delivery-service|merchant-service|notification-worker|gateway|web)
+    rabbitmq|identity-service|delivery-service|delivery-outbox-relay|merchant-service|notification-worker|gateway|web)
       return 0
       ;;
     *)
@@ -301,9 +308,9 @@ esac
 
 if [ "$action" = migrate ]; then
   case "$service" in
-    identity-service|delivery-service|merchant-service) ;;
+    identity-service|delivery-service|merchant-service|notification-worker) ;;
     *)
-      printf '%s\n' 'migrate requires identity-service, delivery-service, or merchant-service' >&2
+      printf '%s\n' 'migrate requires identity-service, delivery-service, merchant-service, or notification-worker' >&2
       exit 2
       ;;
   esac
@@ -328,6 +335,11 @@ run_host_migration() {
       [ -z "$migration_connection" ] && migration_connection=$(read_optional_env_value MERCHANT_DATABASE_CONNECTION_STRING)
       migration_setting=ConnectionStrings__Database
       migration_project=src/Services/Merchant/SwiftDrop.Merchant.Api
+      ;;
+    notification-worker)
+      migration_connection=$(read_optional_env_value NOTIFICATIONS_MIGRATION_CONNECTION_STRING)
+      migration_setting=ConnectionStrings__Database
+      migration_project=src/Workers/SwiftDrop.Notification.Worker
       ;;
   esac
   if [ -z "$migration_connection" ]; then

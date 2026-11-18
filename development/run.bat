@@ -78,7 +78,7 @@ if not "%MODE%"=="docker" if not "%MODE%"=="host" (
 
 if not "%SERVICE%"=="" (
     set "VALID_SVC=0"
-    for %%s in (rabbitmq identity-service delivery-service merchant-service notification-worker gateway web) do (
+    for %%s in (rabbitmq identity-service delivery-service delivery-outbox-relay merchant-service notification-worker gateway web) do (
         if "%SERVICE%"=="%%s" set "VALID_SVC=1"
     )
     if "!VALID_SVC!"=="0" (
@@ -117,8 +117,8 @@ if "!VALID_ACT!"=="0" (
 )
 
 if "%ACTION%"=="migrate" (
-    if not "%SERVICE%"=="identity-service" if not "%SERVICE%"=="delivery-service" (
-        echo migrate requires identity-service or delivery-service >&2
+    if not "%SERVICE%"=="identity-service" if not "%SERVICE%"=="delivery-service" if not "%SERVICE%"=="notification-worker" (
+        echo migrate requires identity-service, delivery-service, or notification-worker >&2
         exit /b 2
     )
 )
@@ -142,6 +142,7 @@ if "%ACTION%"=="migrate" (
     set "MIGRATION_TASK="
     if "%SERVICE%"=="identity-service" set "MIGRATION_TASK=identity-migrate"
     if "%SERVICE%"=="delivery-service" set "MIGRATION_TASK=delivery-migrate"
+    if "%SERVICE%"=="notification-worker" set "MIGRATION_TASK=notification-migrate"
     docker compose --env-file "%ENV_FILE%" -f "%COMPOSE_FILE%" --profile database-migrations run --rm --no-deps !MIGRATION_TASK!
     set "EXIT_CODE=!errorlevel!"
     popd
@@ -231,7 +232,7 @@ exit /b 0
 :usage
 echo Usage:
 echo   development\run.bat up [--mode docker^|host] [--build] [service]
-echo   development\run.bat migrate [--mode docker^|host] identity-service^|delivery-service
+echo   development\run.bat migrate [--mode docker^|host] identity-service^|delivery-service^|notification-worker
 echo   development\run.bat build [service]              # Docker image build
 echo   development\run.bat down^|ps^|logs^|config          # Docker Compose
 echo.
@@ -247,9 +248,6 @@ exit /b 2
 if not exist "%ENV_FILE%" (
     copy "%EXAMPLE_FILE%" "%ENV_FILE%" >nul
 )
-
-REM A password exported in the environment always wins.
-if defined RABBITMQ_DEFAULT_PASS exit /b 0
 
 REM If the file still holds the GENERATE_LOCALLY placeholder, generate one.
 findstr /R /C:"^RABBITMQ_DEFAULT_PASS=GENERATE_LOCALLY" "%ENV_FILE%" >nul
@@ -279,8 +277,18 @@ if errorlevel 1 (
 echo Generated a local RabbitMQ password in %ENV_FILE%
 
 :check_signing_key
+call :ensure_application_broker_passwords
+if errorlevel 1 exit /b 1
 if not exist "%TEMP%\swiftdrop\identity" (
     mkdir "%TEMP%\swiftdrop\identity" 2>nul
+)
+exit /b 0
+
+:ensure_application_broker_passwords
+powershell -NoProfile -Command "$c = [System.Collections.Generic.List[string]](Get-Content -LiteralPath '%ENV_FILE%'); foreach ($k in @('DELIVERY_BROKER_PASSWORD','WORKER_BROKER_PASSWORD')) { $i = -1; for ($n=0; $n -lt $c.Count; $n++) { if ($c[$n] -match ('^' + $k + '=')) { $i = $n; break } }; if ($i -lt 0 -or $c[$i] -match ('^' + $k + '=(GENERATE_LOCALLY)?$')) { $b = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $v = [System.BitConverter]::ToString($b).Replace('-', '').ToLowerInvariant(); if ($i -lt 0) { $c.Add($k + '=' + $v) } else { $c[$i] = $k + '=' + $v } } }; Set-Content -LiteralPath '%ENV_FILE%' -Value $c -Encoding ASCII"
+if errorlevel 1 (
+    echo Failed to generate local RabbitMQ application passwords >&2
+    exit /b 1
 )
 exit /b 0
 
@@ -293,13 +301,19 @@ set "MIG_CONN="
 for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do (
     if "%SERVICE%"=="identity-service" if "%%A"=="IDENTITY_MIGRATION_CONNECTION_STRING" set "MIG_CONN=%%B"
     if "%SERVICE%"=="delivery-service" if "%%A"=="DELIVERY_DATABASE_CONNECTION_STRING" set "MIG_CONN=%%B"
+    if "%SERVICE%"=="notification-worker" if "%%A"=="NOTIFICATIONS_MIGRATION_CONNECTION_STRING" set "MIG_CONN=%%B"
 )
 if "%SERVICE%"=="identity-service" (
     set "MIG_SETTING=ConnectionStrings__MigrationDatabase"
     set "MIG_PROJECT=src\Services\Identity\SwiftDrop.Identity.Api"
-) else (
+)
+if "%SERVICE%"=="delivery-service" (
     set "MIG_SETTING=ConnectionStrings__Database"
     set "MIG_PROJECT=src\Services\Delivery\SwiftDrop.Delivery.Api"
+)
+if "%SERVICE%"=="notification-worker" (
+    set "MIG_SETTING=ConnectionStrings__Database"
+    set "MIG_PROJECT=src\Workers\SwiftDrop.Notification.Worker"
 )
 if "%MIG_CONN%"=="" (
     echo Configure the owning migration connection before migrating %SERVICE% >&2

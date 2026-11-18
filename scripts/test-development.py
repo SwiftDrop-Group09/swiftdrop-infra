@@ -380,5 +380,14 @@ class RunnerTests(unittest.TestCase):
                 self.assertFalse(list(self.calls.iterdir()))
 
 
+class RabbitMqPermissionTests(unittest.TestCase):
+    def test_worker_can_bind_only_the_status_queue_and_event_exchange(self):
+        script = (REPO / "development" / "provision-rabbitmq-users.sh").read_text(encoding="utf-8")
+        permissions = script.split("put_user worker_bus", 1)[1].split("printf", 1)[0]
+        self.assertIn("put_permissions worker_bus", permissions)
+        self.assertEqual(3, permissions.count("notification-status.*"))
+        self.assertEqual(3, permissions.count("SwiftDrop[.]Contracts[.]V1:StatusChanged"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
