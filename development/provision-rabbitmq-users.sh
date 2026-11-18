@@ -41,7 +41,7 @@ put_permissions delivery_bus \
 put_user worker_bus "$WORKER_BROKER_PASSWORD"
 put_permissions worker_bus \
   '^(SwiftDrop[.]Contracts[.]V1:StatusChanged|notification-status.*)$' \
-  '^SwiftDrop[.]Contracts[.]V1:StatusChanged$' \
-  '^notification-status.*$'
+  '^(SwiftDrop[.]Contracts[.]V1:StatusChanged|notification-status.*)$' \
+  '^(SwiftDrop[.]Contracts[.]V1:StatusChanged|notification-status.*)$'
 
 printf '%s\n' 'Provisioned least-privilege local RabbitMQ application users.'
