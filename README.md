@@ -25,6 +25,22 @@ uses it to generate the local RabbitMQ password. `run.sh` needs a POSIX shell
 
 ## Run the development stack
 
+Courier/Merchant order reconciliation in **host mode** can be enabled with one
+private `MERCHANT_DELIVERY_SERVICE_KEY` (32–256 printable ASCII characters) in the
+ignored `development/.env` or exported environment. Use a random 64-character hex
+value. The runner passes it only to Delivery and Merchant, selects the real gRPC
+client and uses the local HTTP/2 listener at `127.0.0.3:8081`. It never gives the
+credential to the browser, Gateway, Identity or Notification. Leave it blank to
+retain the unconfigured, fail-closed order adapter. Existing versioned migrations
+run before startup and never reset data.
+
+Docker/production service connections require a private HTTPS listener and
+certificate configuration; the existing Compose definition does not provision
+this TLS connection. Do not forward the private gRPC endpoint through the public
+gateway or enable development cleartext options in Production. See the
+[backend connection guide](../swiftdrop-backend/docs/courier-workspace-experience.md)
+for per-project user-secret commands and the event/webhook integration boundary.
+
 Keep the infra, backend, and frontend repositories as siblings:
 
 ```text
@@ -71,9 +87,9 @@ permissions. The Identity Development-only token CLI writes short-lived scoped
 JWT files to a private volume, mounted read-only by the Worker. The runner also
 preserves existing private connection strings. The default
 scaffold startup does not require Neon credentials: the sample values are
-enough to run the containers and process health checks. Identity, Delivery, and
-Notification Worker migrations are explicit one-shot tasks through the
-`database-migrations` Compose profile; `up` never applies migrations. Database-backed Identity routes
+enough to run the containers and process health checks. Identity and Delivery
+migrations are explicit one-shot tasks through the `database-migrations`
+Compose profile; `run.sh up` applies pending Identity, Delivery and Merchant migrations before starting services, and stops on migration failure. Database-backed Identity routes
 remain unavailable until its Neon database, runtime role, migration role and
 schema are provisioned.
 
@@ -99,18 +115,18 @@ take up to a minute after `up` returns before their health checks pass.
 The runner handles the common commands and can target one service. Replace
 `./development/run.sh` with `development\run.bat` on Windows.
 
-| Command                                                            | What it does                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `up --mode docker --build`                                       | Build images and start the whole stack (default mode is `docker`) |
-| `up`                                                             | Start the stack using existing images (no rebuild)                  |
-| `up --build delivery-service`                                    | Rebuild and start one service                                       |
-| `up --mode host`                                                 | Run the backend and frontend directly on your machine               |
-| `build [service]`                                                | Build images only                                                   |
-| `ps`                                                             | Show container status                                               |
-| `logs [service]`                                                 | Follow logs (see [Viewing logs](#viewing-logs))                      |
-| `config`                                                         | Validate the Compose configuration (`config --quiet`)             |
-| `down`                                                           | Stop and remove the containers; the RabbitMQ data volume is kept    |
-| `migrate [--mode docker\|host] identity-service\|delivery-service` | Run one explicit database migration                                 |
+| Command                                                                             | What it does                                                        |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `up --mode docker --build`                                                        | Build images and start the whole stack (default mode is `docker`) |
+| `up`                                                                              | Start the stack using existing images (no rebuild)                  |
+| `up --build delivery-service`                                                     | Rebuild and start one service                                       |
+| `up --mode host`                                                                  | Run the backend and frontend directly on your machine               |
+| `build [service]`                                                                 | Build images only                                                   |
+| `ps`                                                                              | Show container status                                               |
+| `logs [service]`                                                                  | Follow logs (see [Viewing logs](#viewing-logs))                      |
+| `config`                                                                          | Validate the Compose configuration (`config --quiet`)             |
+| `down`                                                                            | Stop and remove the containers; the RabbitMQ data volume is kept    |
+| `migrate [--mode docker\|host] identity-service\|delivery-service\|merchant-service` | Run one explicit database migration                                 |
 
 Supported service names: `rabbitmq`, `identity-service`, `delivery-service`,
 `delivery-outbox-relay`, `merchant-service`, `notification-worker`, `gateway`, and `web`.
@@ -140,10 +156,8 @@ services can run together on Linux systems with a low inotify limit.
 On Windows each process opens in
 its own console window; close the window or press Ctrl-C in it to stop that
 process. Each backend receives only its owning database setting. Gateway and
-web receive no database or broker credentials. Host startup performs no
-migration, including when migration credentials are configured. It does not
-start RabbitMQ. The Notification Worker consumes only when RabbitMQ, its
-Notifications database, and dedicated `worker_bus` credentials are configured.
+web receive no database or broker credentials. The shell runner applies pending versioned migrations before host startup. Identity requires its migration connection; Merchant uses its optional migration connection or its runtime connection; Delivery uses its configured database connection. These connections need DDL privileges for migration. It does not
+start RabbitMQ; current application services do not connect to the broker.
 
 ## Viewing logs
 
@@ -225,13 +239,10 @@ token-volume mount. No service-token HTTP endpoint is exposed.
 Review the backend's generated migration SQL before applying it to a shared
 database. Provision the roles and permissions privately; the runner creates no
 roles or grants. Identity uses its separately provisioned DDL-capable migration
-login. Delivery reuses its existing secret for migration, so the role supplied
-for that explicit task must own or have the necessary DDL rights on the Delivery
+login. Delivery prefers its optional migration secret, falling back to the runtime
+connection only when it is absent. The migration login must own the Delivery
 schema and its tables, functions and triggers, plus the EF migration history.
-Notification Worker uses its separate migration login; grant it the DDL rights
-needed to create the schema objects and EF migration history. Runtime roles
-remain separate and restricted. No extra Delivery migration secret or fixed
-database role name is required.
+An optional DELIVERY_MIGRATION_CONNECTION_STRING keeps DDL credentials separate from runtime credentials.
 Keep runtime privileges restricted after migration as your deployment policy
 requires; schema permissions must be verified before running either task.
 
@@ -346,6 +357,16 @@ container or automatic bucket provisioning is introduced.
 The database/broker inputs are listed above. No real Neon or bucket migration
 is performed by runner tests; they use synthetic inputs and disposable fixtures.
 
+Google browser sign-in requires the same public OAuth client ID in the web app
+and Identity's trusted audience list. Set `VITE_GOOGLE_WEB_CLIENT_ID` in ignored
+`development/.env` or export it before starting the runner. Host and Docker modes
+use it for Identity too unless `IDENTITY_GOOGLE_WEB_CLIENT_ID` explicitly overrides
+the server audience. Host mode forwards each public setting only to its owning
+process, including when `--watch` is used. Restart the host stack after changing
+these environment values. Missing Identity audiences return `google_unavailable`
+(503); malformed or untrusted credentials continue to be rejected. These are
+public IDs, and Google client secrets must never be supplied to the frontend.
+
 Kubernetes manifests are separate from this developer workflow. See
 `k8s/` for that optional baseline; it has not been runtime-tested and still
 contains future broker/object-store credentials outside the current local setup
@@ -380,3 +401,37 @@ service hostname. Nonlocal deployments must use HTTPS metadata and their own
 issuer/audience values. Delivery receives no Identity private signing key or
 Identity database credentials. Apply the backend JWT integration PR before this
 configuration; restart the host stack or rebuild Delivery after integration.
+
+### Automatic development schema updates
+
+`development/run.sh up --mode host` and Docker `up` now run all three owning
+migration tasks sequentially before launching applications. `--build` builds the
+Docker images first. Already applied migrations are left unchanged; this checks
+versioned migration history, rather than generating migrations from model changes.
+Stop the previous development processes before restarting. A migration failure
+aborts startup; fix the reported connection/permissions/schema issue and retry.
+No database migrations were applied while implementing or testing this runner.
+The legacy Windows `run.bat` does not provide this automatic migration sequence;
+use Git Bash from PowerShell for the updated startup behavior:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./development/run.sh up --mode host
+```
+
+### Delivery migration permission errors (42501)
+
+Keep `DELIVERY_DATABASE_CONNECTION_STRING` assigned to the restricted runtime
+role. Set `DELIVERY_MIGRATION_CONNECTION_STRING` in `development/.env` (or export
+it) using the schema/table owner credentials for the **same existing**
+`swiftdrop_delivery` database and Neon branch. Use the owner that created the
+existing objects; `CREATE` on the schema alone may not permit altering them.
+Merchant supports `MERCHANT_MIGRATION_CONNECTION_STRING` in the same way.
+These privileged inputs are cleared from normal application environments.
+
+Do not delete tables, reset the database, remove migration-history entries or
+change the database name to work around permissions. Startup uses forward-only
+pending migrations, never `EnsureDeleted`, database recreation, rollback or
+fixture reseeding. Already applied versions are skipped. Identity may have
+completed before Delivery failed; rerunning safely checks Identity again.
+Take a Neon snapshot/backup before applying schema changes to valuable shared
+data; pending migration SQL must still be reviewed for future destructive changes.

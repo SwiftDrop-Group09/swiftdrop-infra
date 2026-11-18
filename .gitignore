@@ -4,5 +4,6 @@
 !.gitignore
 /development/.env
 /development/secrets/
+/development/.logs/
 /k8s/secrets/*.env
 *.log
