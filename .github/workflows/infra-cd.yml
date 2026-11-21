@@ -31,17 +31,17 @@ jobs:
 
       - name: Set overlay, namespace & image tag
         id: target
+        env:
+          TARGET_ENV: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.environment || 'staging') || inputs.environment }}
+          TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.image_tag || inputs.image_tag }}
         run: |
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            TARGET_ENV="${{ github.event.client_payload.environment || 'staging' }}"
-            TAG="${{ github.event.client_payload.image_tag }}"
-          else
-            TARGET_ENV="${{ github.event.inputs.environment }}"
-            TAG="${{ github.event.inputs.image_tag }}"
-          fi
+          case "$TARGET_ENV" in
+            staging|production) ;;
+            *) printf 'Unsupported deployment environment\n' >&2; exit 1 ;;
+          esac
 
           if ! printf '%s' "$TAG" | grep -Eq '^(sha-[0-9a-f]{7,40}|v?[0-9]+\.[0-9]+(\.[0-9]+)?)$'; then
-            printf 'Invalid image_tag "%s": expected sha-<hex> or v<semver>\n' "$TAG" >&2
+            printf 'Invalid image tag. Expected an immutable SHA or release tag.\n' >&2
             exit 1
           fi
 
@@ -58,9 +58,11 @@ jobs:
         uses: azure/setup-kubectl@v4
 
       - name: Configure kubeconfig
+        env:
+          DEPLOY_KUBECONFIG: ${{ secrets.KUBECONFIG }}
         run: |
           mkdir -p "$HOME/.kube"
-          printf '%s\n' "${{ secrets.KUBECONFIG }}" > "$HOME/.kube/config"
+          printf '%s\n' "$DEPLOY_KUBECONFIG" > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
       - name: Pin immutable GHCR image tags
@@ -119,8 +121,30 @@ jobs:
             kubectl rollout status "deployment/${dep}" -n "$NS" --timeout=180s
           done
 
-      - name: Gateway health check
-        if: env.GATEWAY_HEALTH_URL != ''
+      - name: Verify Gateway health and a safe tracking request
         env:
           GATEWAY_HEALTH_URL: ${{ secrets.GATEWAY_HEALTH_URL }}
-        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 "${GATEWAY_HEALTH_URL}"
+        run: |
+          test -n "$GATEWAY_HEALTH_URL"
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 "$GATEWAY_HEALTH_URL" >/dev/null
+          origin="${GATEWAY_HEALTH_URL%/health}"
+          result="$(mktemp)"
+          trap 'rm -f "$result"' EXIT
+          status="$(curl --silent --show-error --max-time 15 --output "$result" --write-out '%{http_code}' \
+            "$origin/api/v1/parcels/track/TRK-000000-00")"
+          test "$status" = 404
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["code"] == "not_found"' "$result"
+
+      - name: Capture sanitized rollout diagnostics
+        if: failure() && steps.target.outputs.namespace != ''
+        env:
+          NAMESPACE: ${{ steps.target.outputs.namespace }}
+        run: python3 scripts/kubernetes_diagnostics.py --namespace "$NAMESPACE" --output rollout-diagnostics.json
+
+      - name: Upload rollout diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollout-diagnostics-${{ github.run_id }}
+          path: rollout-diagnostics.json
+          if-no-files-found: ignore
