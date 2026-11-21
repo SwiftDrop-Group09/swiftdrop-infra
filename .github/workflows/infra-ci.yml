@@ -29,7 +29,9 @@ jobs:
           sh development/assessment.sh config
 
       - name: Validate assessment performance command
-        run: python3 scripts/measure-assessment.py --help
+        run: |
+          python3 -B scripts/measure-assessment.py --help
+          python3 -B scripts/test-assessment.py --help
 
   validate-k8s:
     runs-on: ubuntu-latest
