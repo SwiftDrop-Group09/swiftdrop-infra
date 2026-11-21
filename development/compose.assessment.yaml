@@ -1,0 +1,109 @@
+name: swiftdrop-assessment
+
+services:
+  postgres:
+    image: postgres:17
+    networks:
+      default:
+        ipv4_address: 172.28.0.13
+    environment:
+      POSTGRES_PASSWORD: ${ASSESSMENT_POSTGRES_PASSWORD:-}
+      IDENTITY_APP_PASSWORD: ${ASSESSMENT_IDENTITY_APP_PASSWORD:-}
+      IDENTITY_MIGRATOR_PASSWORD: ${ASSESSMENT_IDENTITY_MIGRATOR_PASSWORD:-}
+      DELIVERY_APP_PASSWORD: ${ASSESSMENT_DELIVERY_APP_PASSWORD:-}
+      DELIVERY_MIGRATOR_PASSWORD: ${ASSESSMENT_DELIVERY_MIGRATOR_PASSWORD:-}
+      DELIVERY_RELAY_PASSWORD: ${ASSESSMENT_DELIVERY_RELAY_PASSWORD:-}
+      MERCHANT_APP_PASSWORD: ${ASSESSMENT_MERCHANT_APP_PASSWORD:-}
+      MERCHANT_MIGRATOR_PASSWORD: ${ASSESSMENT_MERCHANT_MIGRATOR_PASSWORD:-}
+      NOTIFICATIONS_APP_PASSWORD: ${ASSESSMENT_NOTIFICATIONS_APP_PASSWORD:-}
+      NOTIFICATIONS_MIGRATOR_PASSWORD: ${ASSESSMENT_NOTIFICATIONS_MIGRATOR_PASSWORD:-}
+    volumes:
+      - assessment-postgres:/var/lib/postgresql/data
+      - ./init-assessment-postgres.sh:/docker-entrypoint-initdb.d/10-assessment.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  identity-service:
+    environment:
+      ConnectionStrings__Database: Host=postgres;Database=swiftdrop_identity;Username=identity_app;Password=${ASSESSMENT_IDENTITY_APP_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  identity-workload-token-provisioner:
+    user: "0:0"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - >
+        chown 1654:1654 /run/swiftdrop/workload-tokens &&
+        chmod 700 /run/swiftdrop/workload-tokens &&
+        exec runuser -u app -- dotnet SwiftDrop.Identity.Api.dll --run-development-workload-token-provisioner
+    healthcheck:
+      test: ["CMD-SHELL", "runuser -u app -- sh -c 'test -s /run/swiftdrop/workload-tokens/delivery.jwt && test -s /run/swiftdrop/workload-tokens/merchant.jwt'"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  identity-migrate:
+    environment:
+      ConnectionStrings__MigrationDatabase: Host=postgres;Database=swiftdrop_identity;Username=identity_migrator;Password=${ASSESSMENT_IDENTITY_MIGRATOR_PASSWORD:-}
+
+  delivery-service:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_ENVIRONMENT: Development
+      MerchantIntegration__ServiceKey: ${ASSESSMENT_MERCHANT_SERVICE_KEY:-}
+      MerchantIntegration__AllowInsecureTransport: "true"
+      AI__MerchantApiOrigin: http://merchant-service:8080
+      ConnectionStrings__Database: Host=postgres;Database=swiftdrop_delivery;Username=delivery_app;Password=${ASSESSMENT_DELIVERY_APP_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  delivery-migrate:
+    environment:
+      ConnectionStrings__Database: Host=postgres;Database=swiftdrop_delivery;Username=delivery_migrator;Password=${ASSESSMENT_DELIVERY_MIGRATOR_PASSWORD:-}
+
+  delivery-outbox-relay:
+    environment:
+      ConnectionStrings__DeliveryDatabase: Host=postgres;Database=swiftdrop_delivery;Username=delivery_relay;Password=${ASSESSMENT_DELIVERY_RELAY_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  merchant-service:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_ENVIRONMENT: Development
+      Merchant__Orders__Delivery__Client: grpc
+      Merchant__Orders__Delivery__Address: http://delivery-service:8081
+      Merchant__Orders__Delivery__ServiceKey: ${ASSESSMENT_MERCHANT_SERVICE_KEY:-}
+      Merchant__Orders__Delivery__AllowInsecureTransport: "true"
+      ConnectionStrings__Database: Host=postgres;Database=swiftdrop_merchant;Username=merchant_app;Password=${ASSESSMENT_MERCHANT_APP_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  merchant-migrate:
+    environment:
+      ConnectionStrings__Database: Host=postgres;Database=swiftdrop_merchant;Username=merchant_migrator;Password=${ASSESSMENT_MERCHANT_MIGRATOR_PASSWORD:-}
+
+  notification-worker:
+    environment:
+      ConnectionStrings__Database: Host=postgres;Database=swiftdrop_notifications;Username=notifications_app;Password=${ASSESSMENT_NOTIFICATIONS_APP_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      identity-workload-token-provisioner:
+        condition: service_healthy
+
+  notification-migrate:
+    environment:
+      ConnectionStrings__Database: Host=postgres;Database=swiftdrop_notifications;Username=notifications_migrator;Password=${ASSESSMENT_NOTIFICATIONS_MIGRATOR_PASSWORD:-}
+
+volumes:
+  assessment-postgres:

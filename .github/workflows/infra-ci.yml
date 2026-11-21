@@ -22,6 +22,12 @@ jobs:
           cp development/.env.example development/.env
           docker compose --env-file development/.env -f development/compose.yaml config --quiet
 
+      - name: Validate local PostgreSQL assessment overlay
+        run: |
+          sh -n development/assessment.sh
+          sh -n development/init-assessment-postgres.sh
+          sh development/assessment.sh config
+
   validate-k8s:
     runs-on: ubuntu-latest
     timeout-minutes: 10
