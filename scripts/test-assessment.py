@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 from uuid import UUID
 import zlib
 
+import assessment_fixture as fixture
 from assessment_fixture import (
     ApiFailure, COMPOSE, ROOT, login, new_credentials, prepare_fixture, request,
 )
@@ -52,8 +53,25 @@ def compose(*args, query=None):
 
 
 def db(database, query):
-    return compose("exec", "-T", "postgres", "psql", "-At", "-v", "ON_ERROR_STOP=1",
-                   "-U", "postgres", "-d", f"swiftdrop_{database}", query=query + ";\n")
+    psql = ("psql", "-At", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", f"swiftdrop_{database}")
+    if fixture.KUBERNETES:
+        return fixture.cluster().kube("exec", "-i", "postgres-0", "--", *psql,
+                                      data=(query + ";\n").encode()).decode().strip()
+    return compose("exec", "-T", "postgres", *psql, query=query + ";\n")
+
+
+def broker_running(running):
+    if fixture.KUBERNETES:
+        kube = fixture.cluster().kube
+        kube("scale", "statefulset/rabbitmq", f"--replicas={int(running)}", mutate=True)
+        if running:
+            kube("rollout", "status", "statefulset/rabbitmq", "--timeout=120s")
+        else:
+            kube("wait", "--for=delete", "pod/rabbitmq-0", "--timeout=120s")
+    elif running:
+        compose("up", "-d", "--wait", "rabbitmq")
+    else:
+        compose("stop", "rabbitmq")
 
 
 def external(path, method="GET", body=None):
@@ -207,15 +225,15 @@ def scenario(token, evidence):
     parcel = request(f"/api/v1/parcels/{parcel_id}", token=admin)
     evidence["scopedIdempotentMerchantBooking"] = True
     version = advance_to_delivery(parcel_id, parcel["version"], courier_id, dispatcher, courier)
-    compose("stop", "rabbitmq")
     try:
+        broker_running(False)
         delivered = complete_with_proof(parcel_id, version, courier)
         verify(delivered["status"] == "Delivered", "Proof did not complete the parcel")
         event = db("delivery", f"SELECT id FROM outbox_messages WHERE payload->>'parcelId' = '{parcel_id}' AND payload->>'status' = 'Delivered' AND published_at IS NULL")
         event = str(UUID(event))
         evidence["proofCommittedDuringOutage"] = True
     finally:
-        compose("up", "-d", "--wait", "rabbitmq")
+        broker_running(True)
 
     await_result(lambda: db("delivery", f"SELECT id FROM outbox_messages WHERE id = '{event}' AND published_at IS NOT NULL"),
                  "outbox publication after broker recovery")
@@ -239,11 +257,14 @@ def scenario(token, evidence):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--kubernetes", action="store_true", help="use the guarded k3d assessment namespace and localhost port-forward")
     parser.add_argument("--webhook-site", action="store_true", help="opt in to external synthetic webhook verification")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     evidence = {"result": "failed", "automaticSignedWebhook": False}
     try:
+        if args.kubernetes:
+            fixture.use_kubernetes()
         with receiver(args.webhook_site) as token:
             scenario(token, evidence)
         evidence["result"] = "passed" if args.webhook_site else "local-only"

@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        overlay: [dev, staging, prod]
+        overlay: [dev, staging, prod, assessment]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

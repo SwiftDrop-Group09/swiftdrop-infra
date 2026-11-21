@@ -2,7 +2,7 @@
 set -eu
 
 rabbit_ctl() {
-  rabbitmqctl --erlang-cookie "$RABBITMQ_ERLANG_COOKIE" -n rabbit@rabbitmq-0 "$@"
+  rabbitmqctl -n rabbit@rabbitmq-0 "$@"
 }
 
 until rabbit_ctl await_startup; do
@@ -23,9 +23,9 @@ ensure_user delivery_bus "$DELIVERY_BROKER_PASSWORD"
 ensure_user worker_bus "$WORKER_BROKER_PASSWORD"
 
 rabbit_ctl set_permissions -p / delivery_bus \
-  '^(SwiftDrop\.Contracts\.V1:StatusChanged|delivery-realtime.*)$' \
-  '^(SwiftDrop\.Contracts\.V1:StatusChanged|delivery-realtime.*)$' \
-  '^(SwiftDrop\.Contracts\.V1:StatusChanged|delivery-realtime.*)$'
+  '^SwiftDrop\.Contracts\.V1:StatusChanged$' \
+  '^SwiftDrop\.Contracts\.V1:StatusChanged$' ''
+
 rabbit_ctl set_permissions -p / worker_bus \
   '^(SwiftDrop\.Contracts\.V1:StatusChanged|notification-status.*)$' \
   '^(SwiftDrop\.Contracts\.V1:StatusChanged|notification-status.*)$' \

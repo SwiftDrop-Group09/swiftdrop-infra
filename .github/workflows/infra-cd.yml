@@ -77,13 +77,45 @@ jobs:
           open(path, "w").write(text)
           ' "$TAG" kustomization.yaml
 
-      - name: Apply manifests
-        run: kubectl apply -k "k8s/overlays/${{ steps.target.outputs.overlay }}"
+      - name: Apply dependencies and migrations before application rollout
+        env:
+          OVERLAY: ${{ steps.target.outputs.overlay }}
+          NAMESPACE: ${{ steps.target.outputs.namespace }}
+        run: |
+          render_dir="$(mktemp -d)"
+          trap 'rm -rf "$render_dir"' EXIT
+          kubectl kustomize "k8s/overlays/$OVERLAY" > "$render_dir/all.yaml"
+          python3 - "$render_dir" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          directory = Path(sys.argv[1])
+          groups = {"foundation": [], "migrations": [], "application": []}
+          for doc in re.split(r"(?m)^---\s*$", (directory / "all.yaml").read_text()):
+              match = re.search(r"(?m)^kind: (\S+)", doc)
+              if not match:
+                  continue
+              kind = match[1]
+              group = "migrations" if kind == "Job" else (
+                  "application" if kind in {"Deployment", "Ingress"} else "foundation"
+              )
+              groups[group].append(doc.strip())
+          for group, docs in groups.items():
+              (directory / f"{group}.yaml").write_text("\n---\n".join(docs) + "\n")
+          PY
+          kubectl apply -f "$render_dir/foundation.yaml"
+          kubectl rollout status statefulset/rabbitmq -n "$NAMESPACE" --timeout=180s
+          jobs=(identity-migrate delivery-migrate merchant-migrate notifications-migrate)
+          kubectl delete job -n "$NAMESPACE" "${jobs[@]}" --ignore-not-found --wait=true
+          kubectl apply -f "$render_dir/migrations.yaml"
+          kubectl wait -n "$NAMESPACE" --for=condition=complete --timeout=185s "${jobs[@]/#/job/}"
+          kubectl apply -f "$render_dir/application.yaml"
 
       - name: Verify rollout status
         run: |
           NS="${{ steps.target.outputs.namespace }}"
-          for dep in identity-service delivery-service merchant-service notification-worker gateway; do
+          for dep in identity-service delivery-service merchant-service delivery-outbox-relay notification-worker gateway; do
             kubectl rollout status "deployment/${dep}" -n "$NS" --timeout=180s
           done
 

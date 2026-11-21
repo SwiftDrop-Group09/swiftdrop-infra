@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: delivery-outbox-relay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: delivery-outbox-relay
+  template:
+    metadata:
+      labels:
+        app: delivery-outbox-relay
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: relay
+          image: swiftdrop/delivery-outbox-relay:local
+          args: ["SwiftDrop.Delivery.OutboxRelay.dll"]
+          env:
+            - {name: ASPNETCORE_ENVIRONMENT, value: Production}
+            - {name: Kestrel__Endpoints__Http__Url, value: "http://0.0.0.0:8080"}
+            - {name: OutboxRelay__Broker__Host, value: rabbitmq}
+            - {name: OutboxRelay__Broker__Username, value: delivery_bus}
+            - name: OutboxRelay__Broker__Password
+              valueFrom:
+                secretKeyRef: {name: rabbitmq-secrets, key: DELIVERY_BROKER_PASSWORD}
+            - name: ConnectionStrings__DeliveryDatabase
+              valueFrom:
+                secretKeyRef: {name: delivery-relay-secrets, key: ConnectionStrings__DeliveryDatabase}
+          ports:
+            - {name: health, containerPort: 8080}
+          livenessProbe:
+            httpGet: {path: /health, port: health}
+          readinessProbe:
+            httpGet: {path: /health, port: health}
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}

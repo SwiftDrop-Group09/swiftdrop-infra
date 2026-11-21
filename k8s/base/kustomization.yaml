@@ -5,6 +5,8 @@ resources:
   - namespace.yaml
   - configmaps.yaml
   - app-deployments.yaml
+  - delivery-relay.yaml
+  - migrations.yaml
   - app-services.yaml
   - stateful-dependencies.yaml
   - ingress.yaml
