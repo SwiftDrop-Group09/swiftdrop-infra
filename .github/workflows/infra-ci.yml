@@ -28,6 +28,9 @@ jobs:
           sh -n development/init-assessment-postgres.sh
           sh development/assessment.sh config
 
+      - name: Validate assessment performance command
+        run: python3 scripts/measure-assessment.py --help
+
   validate-k8s:
     runs-on: ubuntu-latest
     timeout-minutes: 10

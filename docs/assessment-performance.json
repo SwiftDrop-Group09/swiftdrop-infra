@@ -1,0 +1,54 @@
+{
+  "environment": {
+    "target": "local Compose assessment web proxy",
+    "clientPlatform": "Windows",
+    "iterationsPerUser": 3,
+    "pollIntervalSeconds": 4,
+    "trackingTrials": 5
+  },
+  "load": {
+    "concurrentUsers": 50,
+    "requests": 300,
+    "requestsPerSecond": 581.49,
+    "profiles": {
+      "readSummary": {
+        "samples": 150,
+        "p50Ms": 63.89,
+        "p95Ms": 156.88,
+        "maxMs": 176.71,
+        "failures": {}
+      },
+      "writeQuote": {
+        "samples": 150,
+        "p50Ms": 56.48,
+        "p95Ms": 155.38,
+        "maxMs": 158.09,
+        "failures": {}
+      }
+    }
+  },
+  "tracking": {
+    "sse": {
+      "samples": 5,
+      "p50Ms": 972.86,
+      "p95Ms": 987.64,
+      "maxMs": 987.64,
+      "missed": 0
+    },
+    "polling": {
+      "samples": 5,
+      "p50Ms": 3986.81,
+      "p95Ms": 4017.91,
+      "maxMs": 4017.91,
+      "missed": 0
+    }
+  },
+  "targets": {
+    "50ConcurrentUsers": true,
+    "apiP95Under500Ms": true,
+    "trackingUnder2000Ms": {
+      "sse": true,
+      "polling": false
+    }
+  }
+}
