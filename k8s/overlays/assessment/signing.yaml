@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: identity-service}
+spec:
+  template:
+    spec:
+      securityContext: {fsGroup: 1654}
+      volumes:
+        - name: identity-data
+          persistentVolumeClaim: {claimName: identity-data}
+        - name: identity-signing
+          secret: {secretName: identity-signing, defaultMode: 288}
+      containers:
+        - name: identity
+          volumeMounts:
+            - {name: identity-data, mountPath: /home/app/.aspnet/DataProtection-Keys}
+            - {name: identity-signing, mountPath: /run/identity-signing, readOnly: true}

@@ -22,8 +22,6 @@ data:
   Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
   Kestrel__Endpoints__Grpc__Url: http://0.0.0.0:8081
   Operations__TimeZone: Asia/Colombo
-  Broker__Host: rabbitmq
-  Broker__Username: delivery_bus
   Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
   Identity__Tokens__Audience: swiftdrop-api-local
   Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
@@ -50,10 +48,10 @@ data:
   ASPNETCORE_ENVIRONMENT: Production
   DOTNET_ENVIRONMENT: Production
   Kestrel__Endpoints__Http__Url: http://0.0.0.0:8080
-  Broker__Host: rabbitmq
-  Broker__Username: worker_bus
-  Merchant__BaseUrl: http://merchant-service:8080
-  Delivery__BaseUrl: http://delivery-service:8080
+  Notification__Broker__Host: rabbitmq
+  Notification__Broker__Username: worker_bus
+  Notification__ServiceEndpoints__Merchant: http://merchant-service:8080/
+  Notification__ServiceEndpoints__Delivery: http://delivery-service:8080/
   Identity__Tokens__Issuer: https://identity.swiftdrop.invalid
   Identity__Tokens__JwksUrl: http://identity-service:8080/.well-known/jwks.json
 ---

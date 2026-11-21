@@ -1,0 +1,75 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: swiftdrop-assessment
+resources:
+  - ../../base
+  - postgres.yaml
+  - identity-data.yaml
+patches:
+  - target: {kind: Namespace, name: swiftdrop}
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: swiftdrop-assessment
+  - path: signing.yaml
+  - path: merchant-webhook-key.yaml
+  - path: workload-tokens.yaml
+  - target: {kind: Ingress, name: swiftdrop}
+    patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: swiftdrop
+  - target: {kind: ConfigMap, name: identity-config}
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata: {name: identity-config}
+      data:
+        ASPNETCORE_ENVIRONMENT: "Development"
+        DOTNET_ENVIRONMENT: "Development"
+        Identity__Tokens__PrivateKeyPath: "/run/identity-signing/signing.pem"
+        Identity__Tokens__KeyId: "assessment"
+        Identity__Browser__AllowedOrigins__0: "http://localhost:15173"
+  - target: {kind: ConfigMap, name: delivery-config}
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata: {name: delivery-config}
+      data:
+        ASPNETCORE_ENVIRONMENT: "Development"
+        DOTNET_ENVIRONMENT: "Development"
+        MerchantIntegration__AllowInsecureTransport: "true"
+        AI__MerchantApiOrigin: "http://merchant-service:8080"
+  - target: {kind: ConfigMap, name: merchant-config}
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata: {name: merchant-config}
+      data:
+        ASPNETCORE_ENVIRONMENT: "Development"
+        DOTNET_ENVIRONMENT: "Development"
+        Merchant__Orders__Delivery__Client: "grpc"
+        Merchant__Orders__Delivery__Address: "http://delivery-service:8081"
+        Merchant__Orders__Delivery__AllowInsecureTransport: "true"
+  - target: {kind: Job}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/initContainers
+        value:
+          - name: wait-for-postgres
+            image: postgres:17
+            command: [sh, -ec, "for i in $(seq 1 30); do pg_isready -h postgres -U postgres && exit 0; sleep 2; done; exit 1"]
+            resources:
+              requests: {cpu: 25m, memory: 32Mi}
+              limits: {cpu: 100m, memory: 96Mi}
+  - target: {kind: Deployment, name: notification-worker}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes
+        value:
+          - name: identity-signing
+            secret: {secretName: identity-signing, defaultMode: 288}
+          - name: workload-tokens
+            emptyDir: {}

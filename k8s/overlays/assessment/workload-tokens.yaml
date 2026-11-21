@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: notification-worker}
+spec:
+  template:
+    spec:
+      securityContext: {fsGroup: 1654}
+      volumes:
+        - name: identity-signing
+          secret: {secretName: identity-signing, defaultMode: 288}
+        - name: workload-tokens
+          $patch: replace
+          emptyDir: {}
+      containers:
+        - name: worker
+          env:
+            - {name: Notification__ServiceTokenFiles__Delivery, value: /run/workload-tokens/delivery.jwt}
+            - {name: Notification__ServiceTokenFiles__Merchant, value: /run/workload-tokens/merchant.jwt}
+          volumeMounts:
+            - {name: workload-tokens, mountPath: /run/workload-tokens, readOnly: true}
+          startupProbe:
+            exec:
+              command: [sh, -ec, "test -s /run/workload-tokens/delivery.jwt && test -s /run/workload-tokens/merchant.jwt"]
+            periodSeconds: 2
+            failureThreshold: 40
+        - name: token-provisioner
+          image: swiftdrop/identity:local
+          args: ["SwiftDrop.Identity.Api.dll", "--run-development-workload-token-provisioner"]
+          envFrom:
+            - configMapRef: {name: identity-config}
+          env:
+            - {name: Identity__DevelopmentWorkloadTokens__Directory, value: /run/workload-tokens}
+          volumeMounts:
+            - {name: identity-signing, mountPath: /run/identity-signing, readOnly: true}
+            - {name: workload-tokens, mountPath: /run/workload-tokens}
+          securityContext:
+            runAsUser: 1654
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 192Mi}

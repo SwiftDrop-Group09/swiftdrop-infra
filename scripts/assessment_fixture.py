@@ -1,4 +1,5 @@
 import json
+from importlib import import_module
 import os
 from pathlib import Path
 import secrets
@@ -9,6 +10,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = "http://127.0.0.1:5173"
+KUBERNETES = False
 COMPOSE = (
     "docker", "compose", "--env-file", "development/.env.assessment",
     "-f", "development/compose.yaml", "-f", "development/compose.assessment.yaml",
@@ -55,7 +57,30 @@ def login(credentials):
             time.sleep(3)
 
 
+def cluster():
+    return import_module("deploy-assessment-k3d")
+
+
+def use_kubernetes():
+    global KUBERNETES, ORIGIN
+    cluster().guard()
+    KUBERNETES = True
+    ORIGIN = "http://127.0.0.1:15173"
+
+
 def prepare_fixture(customer_count):
+    if KUBERNETES:
+        cluster().guard()
+        cluster().kube("rollout", "status", "deployment/identity-service", "--timeout=20s")
+    else:
+        verify_compose_target()
+
+    admin = new_credentials("admin")
+    provision_admin(admin)
+    return seed_users(admin, customer_count)
+
+
+def verify_compose_target():
     if not (ROOT / "development/.env.assessment").is_file():
         raise SystemExit("Start the local assessment stack first.")
     published_web = subprocess.check_output(
@@ -64,12 +89,21 @@ def prepare_fixture(customer_count):
     if published_web != "127.0.0.1:5173":
         raise SystemExit("Expected the assessment web service on 127.0.0.1:5173.")
 
-    admin = new_credentials("admin")
+
+
+def provision_admin(admin):
     provision = {
         "Identity__DevelopmentAdmin__Email": admin["email"],
         "Identity__DevelopmentAdmin__Password": admin["password"],
         "Identity__DevelopmentAdmin__FullName": "Performance Admin",
     }
+    if KUBERNETES:
+        command = " && ".join(f"read -r {key}" for key in provision)
+        command += " && export " + " ".join(provision)
+        command += " && exec dotnet SwiftDrop.Identity.Api.dll --provision-development-admin"
+        cluster().kube("exec", "-i", "deployment/identity-service", "--", "sh", "-ec", command,
+                       data=("\n".join(provision.values()) + "\n").encode(), mutate=True, sensitive=True)
+        return
     environment_args = [arg for key in provision for arg in ("-e", key)]
     result = subprocess.run(
         (*COMPOSE, "exec", "-T", *environment_args, "identity-service",
@@ -78,6 +112,9 @@ def prepare_fixture(customer_count):
     )
     if result.returncode:
         raise SystemExit("Could not provision the synthetic assessment admin.")
+
+
+def seed_users(admin, customer_count):
     admin_token = login(admin)
 
     def create_user(role):

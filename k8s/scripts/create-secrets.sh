@@ -26,6 +26,10 @@ create_secret delivery-secrets "$secret_dir/delivery.env"
 create_secret merchant-secrets "$secret_dir/merchant.env"
 create_secret notifications-secrets "$secret_dir/notifications.env"
 create_secret rabbitmq-secrets "$secret_dir/rabbitmq.env"
+for service in identity delivery merchant notifications; do
+  create_secret "$service-migration-secrets" "$secret_dir/$service-migration.env"
+done
+create_secret delivery-relay-secrets "$secret_dir/delivery-relay.env"
 
 if [ -n "${GHCR_USERNAME:-}" ] && [ -n "${GHCR_READ_TOKEN:-}" ]; then
   kubectl create secret docker-registry ghcr-pull-secret \

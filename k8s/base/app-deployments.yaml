@@ -20,11 +20,19 @@ spec:
       automountServiceAccountToken: false
       imagePullSecrets:
         - name: ghcr-pull-secret
+      securityContext: {fsGroup: 1654}
+      volumes:
+        - name: identity-signing
+          secret: {secretName: identity-signing, defaultMode: 288}
       containers:
         - name: identity
           image: swiftdrop/identity:local
           imagePullPolicy: IfNotPresent
           args: ["SwiftDrop.Identity.Api.dll"]
+          volumeMounts:
+            - {name: identity-signing, mountPath: /run/identity-signing, readOnly: true}
+          env:
+            - {name: Identity__Tokens__PrivateKeyPath, value: /run/identity-signing/signing.pem}
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
@@ -93,12 +101,6 @@ spec:
                 name: delivery-config
             - secretRef:
                 name: delivery-secrets
-          env:
-            - name: Broker__Password
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-secrets
-                  key: DELIVERY_BROKER_PASSWORD
           readinessProbe:
             httpGet:
               path: /health
@@ -191,11 +193,17 @@ spec:
       automountServiceAccountToken: false
       imagePullSecrets:
         - name: ghcr-pull-secret
+      securityContext: {fsGroup: 1654}
+      volumes:
+        - name: workload-tokens
+          secret: {secretName: notification-workload-tokens, defaultMode: 288}
       containers:
         - name: worker
           image: swiftdrop/notification-worker:local
           imagePullPolicy: IfNotPresent
           args: ["SwiftDrop.Notification.Worker.dll"]
+          volumeMounts:
+            - {name: workload-tokens, mountPath: /run/workload-tokens, readOnly: true}
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
@@ -210,7 +218,9 @@ spec:
             - secretRef:
                 name: notifications-secrets
           env:
-            - name: Broker__Password
+            - {name: Notification__ServiceTokenFiles__Delivery, value: /run/workload-tokens/delivery.jwt}
+            - {name: Notification__ServiceTokenFiles__Merchant, value: /run/workload-tokens/merchant.jwt}
+            - name: Notification__Broker__Password
               valueFrom:
                 secretKeyRef:
                   name: rabbitmq-secrets

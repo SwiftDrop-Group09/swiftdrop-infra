@@ -5,6 +5,9 @@ resources:
   - ../../base
 
 images:
+  - name: swiftdrop/delivery-outbox-relay
+    newName: ghcr.io/swiftdrop-group09/swiftdrop-delivery-outbox-relay
+    newTag: latest
   - name: swiftdrop/gateway
     newName: ghcr.io/swiftdrop-group09/swiftdrop-gateway
     newTag: latest

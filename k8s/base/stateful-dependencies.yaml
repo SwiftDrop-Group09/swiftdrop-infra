@@ -58,21 +58,25 @@ spec:
                 secretKeyRef:
                   name: rabbitmq-secrets
                   key: WORKER_BROKER_PASSWORD
-          lifecycle:
-            postStart:
-              exec:
-                command: ["/bin/sh", "/config/bootstrap-users.sh"]
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              (until /bin/sh /config/bootstrap-users.sh >/dev/null 2>&1; do sleep 3; done
+               touch /tmp/swiftdrop-broker-ready) &
+              exec /usr/local/bin/docker-entrypoint.sh rabbitmq-server
           volumeMounts:
             - {name: data, mountPath: /var/lib/rabbitmq}
             - {name: broker-bootstrap, mountPath: /config, readOnly: true}
           readinessProbe:
             exec:
-              command: ["rabbitmq-diagnostics", "-q", "ping"]
+              command: ["/bin/sh", "-ec", "test -f /tmp/swiftdrop-broker-ready && rabbitmq-diagnostics -q ping"]
+            timeoutSeconds: 5
             periodSeconds: 10
           livenessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 20
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
             periodSeconds: 20
           resources:
             requests: {cpu: 100m, memory: 256Mi}

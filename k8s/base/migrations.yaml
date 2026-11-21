@@ -1,0 +1,123 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: identity-migrate
+spec:
+  activeDeadlineSeconds: 180
+  backoffLimit: 1
+  template:
+    metadata:
+      labels: {app: identity-migrate}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: swiftdrop/identity:local
+          args: ["SwiftDrop.Identity.Api.dll", "--migrate"]
+          env:
+            - name: ConnectionStrings__MigrationDatabase
+              valueFrom:
+                secretKeyRef: {name: identity-migration-secrets, key: ConnectionStrings__MigrationDatabase}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: delivery-migrate
+spec:
+  activeDeadlineSeconds: 180
+  backoffLimit: 1
+  template:
+    metadata:
+      labels: {app: delivery-migrate}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: swiftdrop/delivery:local
+          args: ["SwiftDrop.Delivery.Api.dll", "--migrate"]
+          env:
+            - name: ConnectionStrings__Database
+              valueFrom:
+                secretKeyRef: {name: delivery-migration-secrets, key: ConnectionStrings__Database}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: merchant-migrate
+spec:
+  activeDeadlineSeconds: 180
+  backoffLimit: 1
+  template:
+    metadata:
+      labels: {app: merchant-migrate}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: swiftdrop/merchant:local
+          args: ["SwiftDrop.Merchant.Api.dll", "--migrate"]
+          env:
+            - name: ConnectionStrings__Database
+              valueFrom:
+                secretKeyRef: {name: merchant-migration-secrets, key: ConnectionStrings__Database}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: notifications-migrate
+spec:
+  activeDeadlineSeconds: 180
+  backoffLimit: 1
+  template:
+    metadata:
+      labels: {app: notifications-migrate}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: swiftdrop/notification-worker:local
+          args: ["SwiftDrop.Notification.Worker.dll", "--migrate"]
+          env:
+            - name: ConnectionStrings__Database
+              valueFrom:
+                secretKeyRef: {name: notifications-migration-secrets, key: ConnectionStrings__Database}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 384Mi}

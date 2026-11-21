@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: merchant-service}
+spec:
+  template:
+    spec:
+      containers:
+        - name: merchant
+          env:
+            - name: WEBHOOK_ENCRYPTION_KEY_V1
+              valueFrom:
+                secretKeyRef: {name: merchant-webhook-key, key: encryption-key}
