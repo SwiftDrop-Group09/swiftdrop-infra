@@ -25,6 +25,22 @@ uses it to generate the local RabbitMQ password. `run.sh` needs a POSIX shell
 
 ## Run the development stack
 
+Courier/Merchant order reconciliation in **host mode** can be enabled with one
+private `MERCHANT_DELIVERY_SERVICE_KEY` (32–256 printable ASCII characters) in the
+ignored `development/.env` or exported environment. Use a random 64-character hex
+value. The runner passes it only to Delivery and Merchant, selects the real gRPC
+client and uses the local HTTP/2 listener at `127.0.0.3:8081`. It never gives the
+credential to the browser, Gateway, Identity or Notification. Leave it blank to
+retain the unconfigured, fail-closed order adapter. Existing versioned migrations
+run before startup and never reset data.
+
+Docker/production service connections require a private HTTPS listener and
+certificate configuration; the existing Compose definition does not provision
+this TLS connection. Do not forward the private gRPC endpoint through the public
+gateway or enable development cleartext options in Production. See the
+[backend connection guide](../swiftdrop-backend/docs/courier-workspace-experience.md)
+for per-project user-secret commands and the event/webhook integration boundary.
+
 Keep the infra, backend, and frontend repositories as siblings:
 
 ```text
@@ -57,15 +73,19 @@ document has a `run.sh` form and a `run.bat` form with identical arguments;
 only the path separator and script name differ.
 
 Docker mode builds and starts separate containers for Gateway, Identity,
-Delivery, Merchant, Notification Worker, web, and local RabbitMQ. The first
+Delivery, its outbox relay, Merchant, Notification Worker, web, and local
+RabbitMQ. It also starts the local Identity workload-token provisioner. The first
 build downloads several base images and can take 10 to 20 minutes on a slow
 connection; later builds use the cache.
 
 On first use, the script copies `development/.env.example` to the ignored
-`development/.env` and generates a local RabbitMQ password unless a private
-`RABBITMQ_DEFAULT_PASS` override is exported. On later runs it keeps the
-existing password, so the value in `.env` stays in step with the RabbitMQ data
-volume. It also preserves existing private connection strings. The default
+`development/.env` and generates local RabbitMQ administrator, `delivery_bus`,
+and `worker_bus` passwords unless private overrides are supplied. On later runs
+it keeps the existing values, so credentials stay in step with the RabbitMQ
+data volume. A bootstrap container creates the application users with separate
+permissions. The Identity Development-only token CLI writes short-lived scoped
+JWT files to a private volume, mounted read-only by the Worker. The runner also
+preserves existing private connection strings. The default
 scaffold startup does not require Neon credentials: the sample values are
 enough to run the containers and process health checks. Identity and Delivery
 migrations are explicit one-shot tasks through the `database-migrations`
@@ -95,21 +115,21 @@ take up to a minute after `up` returns before their health checks pass.
 The runner handles the common commands and can target one service. Replace
 `./development/run.sh` with `development\run.bat` on Windows.
 
-| Command                                                            | What it does                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `up --mode docker --build`                                       | Build images and start the whole stack (default mode is `docker`) |
-| `up`                                                             | Start the stack using existing images (no rebuild)                  |
-| `up --build delivery-service`                                    | Rebuild and start one service                                       |
-| `up --mode host`                                                 | Run the backend and frontend directly on your machine               |
-| `build [service]`                                                | Build images only                                                   |
-| `ps`                                                             | Show container status                                               |
-| `logs [service]`                                                 | Follow logs (see [Viewing logs](#viewing-logs))                      |
-| `config`                                                         | Validate the Compose configuration (`config --quiet`)             |
-| `down`                                                           | Stop and remove the containers; the RabbitMQ data volume is kept    |
+| Command                                                                             | What it does                                                        |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `up --mode docker --build`                                                        | Build images and start the whole stack (default mode is `docker`) |
+| `up`                                                                              | Start the stack using existing images (no rebuild)                  |
+| `up --build delivery-service`                                                     | Rebuild and start one service                                       |
+| `up --mode host`                                                                  | Run the backend and frontend directly on your machine               |
+| `build [service]`                                                                 | Build images only                                                   |
+| `ps`                                                                              | Show container status                                               |
+| `logs [service]`                                                                  | Follow logs (see [Viewing logs](#viewing-logs))                      |
+| `config`                                                                          | Validate the Compose configuration (`config --quiet`)             |
+| `down`                                                                            | Stop and remove the containers; the RabbitMQ data volume is kept    |
 | `migrate [--mode docker\|host] identity-service\|delivery-service\|merchant-service` | Run one explicit database migration                                 |
 
 Supported service names: `rabbitmq`, `identity-service`, `delivery-service`,
-`merchant-service`, `notification-worker`, `gateway`, and `web`.
+`delivery-outbox-relay`, `merchant-service`, `notification-worker`, `gateway`, and `web`.
 
 Rules enforced by the runner: `--build` is only valid with `up` and Docker
 mode; `down`, `ps` and `config` operate on the whole stack and reject a
@@ -190,11 +210,31 @@ the examples contain placeholders only.
 | Secret                                       | Recipient / use                                                                                                      |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `RABBITMQ_DEFAULT_PASS`                    | RabbitMQ administrator only, never application workloads                                                             |
+| `WORKER_BROKER_PASSWORD`                   | Notification Worker `worker_bus` RabbitMQ password; never use the administrator password                          |
+| `DELIVERY_BROKER_PASSWORD`                 | Delivery `delivery_bus` RabbitMQ password                                                                         |
 | `IDENTITY_DATABASE_CONNECTION_STRING`      | Identity `ConnectionStrings__Database`, database `swiftdrop_identity`                                            |
 | `DELIVERY_DATABASE_CONNECTION_STRING`      | Delivery `ConnectionStrings__Database`, database `swiftdrop_delivery`; also the explicit Delivery migration task |
 | `MERCHANT_DATABASE_CONNECTION_STRING`      | Merchant `ConnectionStrings__Database`, database `swiftdrop_merchant`                                            |
-| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker `ConnectionStrings__Database`, database `swiftdrop_notifications`                            |
+| `NOTIFICATIONS_DATABASE_CONNECTION_STRING` | Notification Worker runtime database `swiftdrop_notifications`                                                  |
+| `NOTIFICATIONS_MIGRATION_CONNECTION_STRING` | Explicit Notification Worker migration task; DDL-capable role on `swiftdrop_notifications`                       |
+| `DELIVERY_OUTBOX_DATABASE_CONNECTION_STRING` | Dedicated relay role on `swiftdrop_delivery`; read outbox and update `published_at` only                     |
 | `IDENTITY_MIGRATION_CONNECTION_STRING`     | Explicit Identity task's `ConnectionStrings__MigrationDatabase`, database `swiftdrop_identity`                   |
+
+For Docker mode, Compose maps the Worker credential to
+`Notification__Broker__Password`, host `rabbitmq`, username `worker_bus`, and
+virtual host `/`. Compose provisions the dedicated RabbitMQ users and permissions
+before enabling consumption. If the Notifications database or broker credentials are
+missing, the Worker remains live but logs that message consumption is disabled.
+Run `development/run.sh migrate notification-worker` (or
+`development\run.bat migrate notification-worker` on Windows) after provisioning
+the Notifications database and before enabling the consumer.
+
+The relay's dedicated runtime role needs only SELECT on `outbox_messages` and
+UPDATE on `published_at`; see the backend outbox handoff for the exact grants.
+The local token provisioner issues four-minute `delivery-internal` and
+`merchant-internal` JWTs with only the required routing scopes, refreshes them
+every two minutes, and writes them outside Git. The Worker receives a read-only
+token-volume mount. No service-token HTTP endpoint is exposed.
 
 Review the backend's generated migration SQL before applying it to a shared
 database. Provision the roles and permissions privately; the runner creates no
@@ -302,7 +342,8 @@ registration/login/profile connections, Delivery quotes/booking/courier handlers
 and the Merchant onboarding/key persistence slice are present. Real routes still
 require owning Neon schemas and authentication integration; Delivery and Merchant
 currently use fail-closed IAM seams. Process liveness is not feature readiness.
-Notifications persistence and the RabbitMQ relay/consumers remain deferred.
+Notification persistence and relay source are implemented in the local path;
+broker-backed end-to-end acceptance and production provisioning remain pending.
 
 Courier completion also needs a privately provisioned S3-compatible bucket. Set
 `DELIVERY_PROOF_STORAGE_ENDPOINT`, `BUCKET`, `REGION`, `ACCESS_KEY`, `SECRET_KEY`
@@ -313,7 +354,7 @@ ACLs, no resource-policy Allow and server-side encryption. Missing storage
 configuration fails completion without committing Delivered. No shared MinIO
 container or automatic bucket provisioning is introduced.
 
-The six database/broker names remain unchanged. No real Neon or bucket migration
+The database/broker inputs are listed above. No real Neon or bucket migration
 is performed by runner tests; they use synthetic inputs and disposable fixtures.
 
 Google browser sign-in requires the same public OAuth client ID in the web app
@@ -328,7 +369,7 @@ public IDs, and Google client secrets must never be supplied to the frontend.
 
 Kubernetes manifests are separate from this developer workflow. See
 `k8s/` for that optional baseline; it has not been runtime-tested and still
-contains future broker/object-store credentials outside the current six-secret
+contains future broker/object-store credentials outside the current local setup
 workflow. Reconcile it with implemented adapters before deploying it.
 
 Run the runner checks without Docker or Neon:
@@ -347,7 +388,7 @@ validation. They do not start or migrate the shared stack.
 | ---------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provisioned Neon roles, schema privileges and database-backed readiness have not been verified | Service/infra owners          | Privately validate owning-role permissions, run each explicit migration after SQL review, and verify persistence; no live Neon validation is claimed by this repository |
 | Merchant human-token integration and Notifications persistence remain incomplete               | Their service owners          | Implement the owned schema, migration, data access, and focused tests before that service's first feature                                                               |
-| RabbitMQ publishers/consumers and outbox relay remain unimplemented                            | Delivery/Notifications owners | Exercise a committed booking event through broker acknowledgement and consumer deduplication                                                                            |
+| Live Delivery event publish/consume acceptance and durable notification effects remain incomplete | Delivery/Notifications owners | Exercise a committed status event through broker acknowledgement, consumer deduplication, and durable notification/provider effects                                 |
 | Container acceptance remains separate from static and host checks                              | App/infra owners              | Run Docker image build/start and record Gateway/web and container health before merge                                                                                   |
 
 ## Delivery authentication

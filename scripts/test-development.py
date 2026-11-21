@@ -58,6 +58,7 @@ class RunnerTests(unittest.TestCase):
         )
         self.original_env = self.env_file.read_bytes()
         self.environment = os.environ.copy()
+        self.environment.pop("MERCHANT_DELIVERY_SERVICE_KEY", None)
         for name in ("IDENTITY_GOOGLE_WEB_CLIENT_ID", "VITE_GOOGLE_WEB_CLIENT_ID"):
             self.environment.pop(name, None)
         self.environment.update(self.secrets)
@@ -235,6 +236,36 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual("true", values["Identity__Tokens__AllowInsecureJwks"])
         self.assertNotIn("Identity__Tokens__PrivateKeyPath", values)
 
+    def test_merchant_delivery_credential_is_scoped_to_the_two_runtime_services(self):
+        key = "fictional-private-rpc-credential-for-tests"
+        self.environment["MERCHANT_DELIVERY_SERVICE_KEY"] = key
+        self.environment["MerchantIntegration__ServiceKey"] = "stale-unscoped"
+        self.environment["Merchant__Orders__Delivery__ServiceKey"] = "stale-unscoped"
+        result = self.run_runner("up", "--mode", "host")
+        for name in ("SwiftDrop.Identity.Api", "SwiftDrop.Delivery.Api", "SwiftDrop.Merchant.Api",
+                     "SwiftDrop.Notification.Worker", "SwiftDrop.Gateway", "web", "build"):
+            values = self.process_environment(name)
+            self.assertNotIn("MERCHANT_DELIVERY_SERVICE_KEY", values)
+            if name == "SwiftDrop.Delivery.Api":
+                self.assertEqual(key, values["MerchantIntegration__ServiceKey"])
+                self.assertEqual("true", values["MerchantIntegration__AllowInsecureTransport"])
+            else:
+                self.assertNotIn("MerchantIntegration__ServiceKey", values)
+            if name == "SwiftDrop.Merchant.Api":
+                self.assertEqual(key, values["Merchant__Orders__Delivery__ServiceKey"])
+                self.assertEqual("Grpc", values["Merchant__Orders__Delivery__Client"])
+                self.assertEqual("http://127.0.0.3:8081", values["Merchant__Orders__Delivery__Address"])
+            else:
+                self.assertNotIn("Merchant__Orders__Delivery__ServiceKey", values)
+        self.assertNotIn(key, result.stdout)
+
+    def test_short_rpc_credential_fails_before_build_or_migrations(self):
+        self.environment["MERCHANT_DELIVERY_SERVICE_KEY"] = "too-short"
+        result = self.run_runner("up", "--mode", "host")
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("too-short", result.stdout)
+        self.assertFalse(list(self.calls.iterdir()))
+
     def test_failed_host_build_starts_no_processes(self):
         self.environment["MOCK_BUILD_EXIT"] = "7"
         result = self.run_runner("up", "--mode", "host")
@@ -347,6 +378,15 @@ class RunnerTests(unittest.TestCase):
                 result = self.run_runner(*args)
                 self.assertEqual(2, result.returncode)
                 self.assertFalse(list(self.calls.iterdir()))
+
+
+class RabbitMqPermissionTests(unittest.TestCase):
+    def test_worker_can_bind_only_the_status_queue_and_event_exchange(self):
+        script = (REPO / "development" / "provision-rabbitmq-users.sh").read_text(encoding="utf-8")
+        permissions = script.split("put_user worker_bus", 1)[1].split("printf", 1)[0]
+        self.assertIn("put_permissions worker_bus", permissions)
+        self.assertEqual(3, permissions.count("notification-status.*"))
+        self.assertEqual(3, permissions.count("SwiftDrop[.]Contracts[.]V1:StatusChanged"))
 
 
 if __name__ == "__main__":
