@@ -262,7 +262,7 @@ def scenario(token, evidence, browser=False):
         if browser:
             event_path = "/api/v1/parcels/track/" + job["trackingNumber"] + "/events"
             stream_request = Request(fixture.ORIGIN + event_path, headers={"Accept": "text/event-stream"})
-            with urlopen(stream_request, timeout=20, context=fixture.TLS_CONTEXT) as stream:
+            with fixture.LOCAL_OPENER.open(stream_request, timeout=20) as stream:
                 verify(stream.headers.get_content_type() == "text/event-stream", "Missing SSE content type")
                 delivered_snapshot(stream, "OutForDelivery")
                 delivered = browser_proof({"id": parcel_id, "trackingNumber": job["trackingNumber"]}, version, courier)
@@ -320,7 +320,10 @@ def main():
         evidence.update(result="external-service-failed", error=str(error))
     except ApiFailure as error:
         evidence.update(result="application-request-failed", error=str(error))
-    except (RuntimeError, ValueError, KeyError, OSError) as error:
+    except OSError as error:
+        message = str(error)
+        evidence.update(error=message if message.startswith("Local API transport error at ") else type(error).__name__)
+    except (RuntimeError, ValueError, KeyError) as error:
         evidence.update(error=str(error) if isinstance(error, RuntimeError) else type(error).__name__)
     finally:
         args.output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")

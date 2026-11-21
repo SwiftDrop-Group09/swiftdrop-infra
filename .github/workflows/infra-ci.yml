@@ -100,10 +100,12 @@ jobs:
           python3 -B scripts/deploy-assessment-k3d.py --ca-output "$RUNNER_TEMP/assessment-ca.pem" | tee "$RUNNER_TEMP/assessment-install.txt"
       - name: Verify local HTTPS and broker recovery
         run: |
-          kubectl --context k3d-swiftdrop -n kube-system port-forward svc/traefik 18443:443 > /dev/null 2>&1 &
+          kubectl --context k3d-swiftdrop -n kube-system port-forward --address=127.0.0.1 svc/traefik 18443:443 > "$RUNNER_TEMP/assessment-forward.txt" 2>&1 &
           forward=$!
           trap 'kill "$forward" 2>/dev/null || true' EXIT
           curl --cacert "$RUNNER_TEMP/assessment-ca.pem" --retry 8 --retry-connrefused --retry-delay 2 --fail --silent --show-error https://localhost:18443/health
+          curl --cacert "$RUNNER_TEMP/assessment-ca.pem" --retry 8 --retry-delay 2 --max-time 15 --fail --silent --show-error \
+            -H 'Sec-Fetch-Site: same-origin' https://localhost:18443/api/v1/auth/csrf >/dev/null
           python3 -B scripts/test-assessment.py --kubernetes --ca-file "$RUNNER_TEMP/assessment-ca.pem" --output "$RUNNER_TEMP/assessment-smoke.json"
       - name: Collect sanitized Kubernetes evidence
         if: always()
@@ -114,5 +116,6 @@ jobs:
           name: local-assessment
           path: |
             ${{ runner.temp }}/assessment-install.txt
+            ${{ runner.temp }}/assessment-forward.txt
             ${{ runner.temp }}/assessment-smoke.json
             ${{ runner.temp }}/assessment-status.json
