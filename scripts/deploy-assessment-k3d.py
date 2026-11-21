@@ -3,6 +3,7 @@
 import argparse
 import base64
 import json
+import ipaddress
 from pathlib import Path
 import re
 import secrets
@@ -38,12 +39,12 @@ def kube(*args, data=None, mutate=False, sensitive=False, scoped=True):
     return run("kubectl", "--context", CONTEXT, *namespace, *args, data=data, sensitive=sensitive)
 
 
-def secret(name, values):
+def secret(name, values, secret_type="Opaque"):
     if kube("get", "secret", name, "--ignore-not-found", "-o", "name"):
         return
     manifest = {
         "apiVersion": "v1", "kind": "Secret", "metadata": {"name": name},
-        "type": "Opaque",
+        "type": secret_type,
         "data": {key: base64.b64encode(value if isinstance(value, bytes) else value.encode()).decode()
                  for key, value in values.items()},
     }
@@ -88,6 +89,43 @@ def provision(openssl):
     if not kube("get", "secret", "identity-signing", "--ignore-not-found", "-o", "name"):
         pem = run(openssl, "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:3072", sensitive=True)
         secret("identity-signing", {"signing.pem": pem})
+
+
+def provision_tls(openssl, ca_output):
+    if not kube("get", "secret", "assessment-tls", "--ignore-not-found", "-o", "name"):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            root_key, ca, key, csr, cert, extensions = (
+                str(directory / name) for name in ("ca.key", "ca.crt", "tls.key", "tls.csr", "tls.crt", "extensions")
+            )
+            run(openssl, "req", "-x509", "-newkey", "rsa:3072", "-nodes", "-days", "90",
+                "-subj", "/CN=SwiftDrop local assessment CA",
+                "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+                "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-keyout", root_key, "-out", ca, sensitive=True)
+            run(openssl, "req", "-new", "-newkey", "rsa:2048", "-nodes",
+                "-subj", "/CN=localhost", "-keyout", key, "-out", csr, sensitive=True)
+            Path(extensions).write_text(
+                "subjectAltName=DNS:localhost\n"
+                "basicConstraints=critical,CA:FALSE\n"
+                "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                "extendedKeyUsage=serverAuth\n", encoding="ascii",
+            )
+            run(openssl, "x509", "-req", "-in", csr, "-CA", ca, "-CAkey", root_key,
+                "-CAcreateserial", "-days", "90", "-extfile", extensions, "-out", cert, sensitive=True)
+            secret("assessment-tls", {
+                "tls.crt": Path(cert).read_bytes(), "tls.key": Path(key).read_bytes(), "ca.crt": Path(ca).read_bytes(),
+            }, secret_type="kubernetes.io/tls")
+    ca_output.write_text(read_secret("assessment-tls")["ca.crt"], encoding="ascii")
+    print(f"Local HTTPS trust certificate: {ca_output}", flush=True)
+
+
+def trusted_proxy(selector, namespace):
+    pods = json.loads(kube("get", "pods", "-n", namespace, "-l", selector, "-o", "json", scoped=False))["items"]
+    addresses = [item["status"].get("podIP") for item in pods if item["status"].get("phase") == "Running"
+                 and not item["metadata"].get("deletionTimestamp")]
+    if len(addresses) != 1 or not addresses[0]:
+        raise RuntimeError(f"Expected exactly one running local peer for {selector}")
+    return str(ipaddress.ip_address(addresses[0]))
 
 
 def import_images():
@@ -144,12 +182,13 @@ def render(refs):
     return groups
 
 
-def deploy(openssl):
+def deploy(openssl, ca_output):
     guard()
     images = import_images()
     groups = render(images)
     apply(groups.pop("Namespace"))
     provision(openssl)
+    provision_tls(openssl, ca_output)
     config = kube("create", "configmap", "postgres-bootstrap",
                   "--from-file=10-assessment.sh=development/init-assessment-postgres.sh",
                   "--dry-run=client", "-o", "json")
@@ -170,15 +209,23 @@ def deploy(openssl):
     for resources in groups.values():
         apply(resources)
     kube("rollout", "status", "deployment", "--timeout=180s")
-    print(kube("get", "deploy,statefulset,job,service,pvc,networkpolicy").decode().strip())
+    ingress_proxy = trusted_proxy("app.kubernetes.io/name=traefik", "kube-system")
+    kube("set", "env", "deployment/gateway", f"Gateway__Forwarding__KnownProxies__0={ingress_proxy}", mutate=True)
+    kube("rollout", "status", "deployment/gateway", "--timeout=100s")
+    gateway_proxy = trusted_proxy("app=gateway", NAMESPACE)
+    kube("set", "env", "deployment/identity-service",
+         f"Identity__Proxy__KnownProxies__0={gateway_proxy}", mutate=True)
+    kube("rollout", "status", "deployment/identity-service", "--timeout=100s")
+    print(kube("get", "deploy,statefulset,job,service,ingress,pvc,networkpolicy").decode().strip())
     print(json.dumps(images, indent=2))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--openssl", default="openssl")
+    parser.add_argument("--ca-output", type=Path, default=Path(tempfile.gettempdir()) / "swiftdrop-assessment-ca.pem")
     args = parser.parse_args()
-    deploy(args.openssl)
+    deploy(args.openssl, args.ca_output)
 
 
 if __name__ == "__main__":

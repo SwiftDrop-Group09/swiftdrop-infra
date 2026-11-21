@@ -34,13 +34,7 @@ patches:
         value: swiftdrop-staging
   - path: delete-web.yaml
   - path: delete-web-service.yaml
-  - path: ingress-http.yaml
-  - target:
-      kind: Ingress
-      name: swiftdrop
-    patch: |-
-      - op: remove
-        path: /spec/tls
+  - path: ingress-public.yaml
   - target:
       kind: Deployment
     patch: |-
@@ -53,14 +47,14 @@ patches:
     patch: |-
       - op: replace
         path: /data/Web__Origin
-        value: http://api-staging.swiftdrop.example.com
+        value: https://swiftdrop-staging.vercel.app
   - target:
       kind: ConfigMap
       name: identity-config
     patch: |-
       - op: replace
         path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
+        value: https://api-staging.swiftdrop.example.com
       - op: replace
         path: /data/Identity__Browser__AllowedOrigins__0
         value: https://swiftdrop-staging.vercel.app
@@ -70,18 +64,18 @@ patches:
     patch: |-
       - op: replace
         path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
+        value: https://api-staging.swiftdrop.example.com
   - target:
       kind: ConfigMap
       name: merchant-config
     patch: |-
       - op: replace
         path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
+        value: https://api-staging.swiftdrop.example.com
   - target:
       kind: ConfigMap
       name: notifications-config
     patch: |-
       - op: replace
         path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
+        value: https://api-staging.swiftdrop.example.com

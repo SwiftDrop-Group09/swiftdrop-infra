@@ -1,5 +1,6 @@
 """Run the synthetic assessment workflow through the real Compose services."""
 import argparse
+import base64
 from contextlib import contextmanager
 import hashlib
 import hmac
@@ -176,7 +177,38 @@ def complete_with_proof(parcel_id, version, courier):
                    extra_headers=content_type, idempotency_key=secrets.token_hex(12))
 
 
-def scenario(token, evidence):
+def delivered_snapshot(stream, status):
+    for line in stream:
+        if line.startswith(b"data: "):
+            snapshot = json.loads(line[6:])
+            if snapshot["status"] == status:
+                verify(set(snapshot) == {"trackingNumber", "status", "lastUpdatedAt"},
+                       "Public tracking stream exposed unexpected fields")
+                return
+    raise RuntimeError("Public tracking stream closed before " + status)
+
+
+def browser_proof(parcel, version, courier):
+    headers, proof = proof_body(version)
+    arguments = {
+        "origin": fixture.ORIGIN,
+        "trackingNumber": parcel["trackingNumber"],
+        "path": f"/api/v1/deliveries/{parcel['id']}/pod",
+        "token": courier,
+        "key": secrets.token_hex(12),
+        "headers": headers,
+        "body": base64.b64encode(proof).decode("ascii"),
+    }
+    result = subprocess.run(
+        ("node", "scripts/assessment-browser.cjs"), input=json.dumps(arguments),
+        text=True, capture_output=True, check=False, cwd=ROOT, timeout=60,
+    )
+    if result.returncode:
+        raise RuntimeError("Chromium proof or incremental SSE assertion failed")
+    return json.loads(result.stdout)
+
+
+def scenario(token, evidence, browser=False):
     (customer,), admin, courier_id, courier, quote_input = prepare_fixture(1)
     dispatcher = credentials("Dispatcher", admin)
     applicant = new_credentials("merchant")
@@ -227,7 +259,17 @@ def scenario(token, evidence):
     version = advance_to_delivery(parcel_id, parcel["version"], courier_id, dispatcher, courier)
     try:
         broker_running(False)
-        delivered = complete_with_proof(parcel_id, version, courier)
+        if browser:
+            event_path = "/api/v1/parcels/track/" + job["trackingNumber"] + "/events"
+            stream_request = Request(fixture.ORIGIN + event_path, headers={"Accept": "text/event-stream"})
+            with urlopen(stream_request, timeout=20, context=fixture.TLS_CONTEXT) as stream:
+                verify(stream.headers.get_content_type() == "text/event-stream", "Missing SSE content type")
+                delivered_snapshot(stream, "OutForDelivery")
+                delivered = browser_proof({"id": parcel_id, "trackingNumber": job["trackingNumber"]}, version, courier)
+                delivered_snapshot(stream, "Delivered")
+            evidence["browserProofAndLiveTracking"] = True
+        else:
+            delivered = complete_with_proof(parcel_id, version, courier)
         verify(delivered["status"] == "Delivered", "Proof did not complete the parcel")
         event = db("delivery", f"SELECT id FROM outbox_messages WHERE payload->>'parcelId' = '{parcel_id}' AND payload->>'status' = 'Delivered' AND published_at IS NULL")
         event = str(UUID(event))
@@ -258,15 +300,21 @@ def scenario(token, evidence):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kubernetes", action="store_true", help="use the guarded k3d assessment namespace and localhost port-forward")
+    parser.add_argument("--ca-file", type=Path, help="verify the local Traefik HTTPS certificate using this CA")
+    parser.add_argument("--browser", action="store_true", help="complete Merchant proof in Chromium and verify the live tracking UI")
     parser.add_argument("--webhook-site", action="store_true", help="opt in to external synthetic webhook verification")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.ca_file and not args.kubernetes:
+        parser.error("--ca-file requires --kubernetes")
+    if args.browser and not args.ca_file:
+        parser.error("--browser requires --ca-file and a trusted Chromium certificate store")
     evidence = {"result": "failed", "automaticSignedWebhook": False}
     try:
         if args.kubernetes:
-            fixture.use_kubernetes()
+            fixture.use_kubernetes(args.ca_file)
         with receiver(args.webhook_site) as token:
-            scenario(token, evidence)
+            scenario(token, evidence, args.browser)
         evidence["result"] = "passed" if args.webhook_site else "local-only"
     except ReceiverFailure as error:
         evidence.update(result="external-service-failed", error=str(error))

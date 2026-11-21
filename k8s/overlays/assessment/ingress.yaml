@@ -3,9 +3,14 @@ kind: Ingress
 metadata:
   name: assessment
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.options: swiftdrop-assessment-assessment-tls@kubernetescrd
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts: [localhost]
+      secretName: assessment-tls
   rules:
     - host: localhost
       http:

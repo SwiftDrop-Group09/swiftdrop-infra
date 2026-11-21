@@ -3,6 +3,7 @@ from importlib import import_module
 import os
 from pathlib import Path
 import secrets
+import ssl
 import subprocess
 import time
 from urllib.error import HTTPError
@@ -11,6 +12,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = "http://127.0.0.1:5173"
 KUBERNETES = False
+TLS_CONTEXT = None
 COMPOSE = (
     "docker", "compose", "--env-file", "development/.env.assessment",
     "-f", "development/compose.yaml", "-f", "development/compose.assessment.yaml",
@@ -34,7 +36,7 @@ def request(path, payload=None, token=None, method=None, idempotency_key=None, e
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
     try:
-        with urlopen(Request(ORIGIN + path, data, headers, method=method), timeout=15) as response:
+        with urlopen(Request(ORIGIN + path, data, headers, method=method), timeout=15, context=TLS_CONTEXT) as response:
             body = response.read()
             return json.loads(body) if body else None
     except HTTPError as error:
@@ -61,11 +63,14 @@ def cluster():
     return import_module("deploy-assessment-k3d")
 
 
-def use_kubernetes():
-    global KUBERNETES, ORIGIN
+def use_kubernetes(ca_file=None):
+    global KUBERNETES, ORIGIN, TLS_CONTEXT
     cluster().guard()
     KUBERNETES = True
     ORIGIN = "http://127.0.0.1:15173"
+    if ca_file:
+        ORIGIN = "https://localhost:18443"
+        TLS_CONTEXT = ssl.create_default_context(cafile=str(ca_file))
 
 
 def prepare_fixture(customer_count):

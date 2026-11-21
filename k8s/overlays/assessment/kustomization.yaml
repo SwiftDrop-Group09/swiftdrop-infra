@@ -6,6 +6,7 @@ resources:
   - postgres.yaml
   - identity-data.yaml
   - ingress.yaml
+  - https-policy.yaml
   - web-ingress-policy.yaml
 patches:
   - target: {kind: Namespace, name: swiftdrop}
@@ -42,7 +43,7 @@ patches:
         DOTNET_ENVIRONMENT: "Development"
         Identity__Tokens__PrivateKeyPath: "/run/identity-signing/signing.pem"
         Identity__Tokens__KeyId: "assessment"
-        Identity__Browser__AllowedOrigins__0: "http://localhost:15173"
+        Identity__Browser__AllowedOrigins__0: "https://localhost:18443"
   - target: {kind: ConfigMap, name: delivery-config}
     patch: |-
       apiVersion: v1
