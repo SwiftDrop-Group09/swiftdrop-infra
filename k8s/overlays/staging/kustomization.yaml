@@ -56,11 +56,17 @@ patches:
       name: identity-config
     patch: |-
       - op: replace
+        path: /data/ASPNETCORE_ENVIRONMENT
+        value: Development
+      - op: replace
+        path: /data/DOTNET_ENVIRONMENT
+        value: Development
+      - op: replace
         path: /data/Identity__Tokens__Issuer
         value: http://api-staging.swiftdrop.example.com
       - op: replace
         path: /data/Identity__Browser__AllowedOrigins__0
-        value: https://swiftdrop-staging.vercel.app
+        value: https://swiftdropdelivery.vercel.app
   - target:
       kind: ConfigMap
       name: delivery-config

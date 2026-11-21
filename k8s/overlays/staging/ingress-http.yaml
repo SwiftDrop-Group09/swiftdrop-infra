@@ -4,8 +4,7 @@ metadata:
   name: swiftdrop
 spec:
   rules:
-    - host: api-staging.swiftdrop.example.com
-      http:
+    - http:
         paths:
           - path: /api
             pathType: Prefix
