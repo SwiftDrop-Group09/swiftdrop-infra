@@ -62,29 +62,5 @@ patches:
         path: /data/DOTNET_ENVIRONMENT
         value: Development
       - op: replace
-        path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
-      - op: replace
         path: /data/Identity__Browser__AllowedOrigins__0
         value: https://swiftdropdelivery.vercel.app
-  - target:
-      kind: ConfigMap
-      name: delivery-config
-    patch: |-
-      - op: replace
-        path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
-  - target:
-      kind: ConfigMap
-      name: merchant-config
-    patch: |-
-      - op: replace
-        path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
-  - target:
-      kind: ConfigMap
-      name: notifications-config
-    patch: |-
-      - op: replace
-        path: /data/Identity__Tokens__Issuer
-        value: http://api-staging.swiftdrop.example.com
