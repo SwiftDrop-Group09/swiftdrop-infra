@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: assessment
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port: {number: 8080}
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: gateway
+                port: {number: 8080}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port: {number: 8080}

@@ -5,12 +5,23 @@ resources:
   - ../../base
   - postgres.yaml
   - identity-data.yaml
+  - ingress.yaml
+  - web-ingress-policy.yaml
 patches:
   - target: {kind: Namespace, name: swiftdrop}
     patch: |-
       - op: replace
         path: /metadata/name
         value: swiftdrop-assessment
+  - target: {kind: NetworkPolicy, name: allow-gateway-ingress}
+    patch: |-
+      - op: add
+        path: /spec/ingress/0/from
+        value:
+          - namespaceSelector:
+              matchLabels: {kubernetes.io/metadata.name: kube-system}
+            podSelector:
+              matchLabels: {app.kubernetes.io/name: traefik}
   - path: signing.yaml
   - path: merchant-webhook-key.yaml
   - path: workload-tokens.yaml
