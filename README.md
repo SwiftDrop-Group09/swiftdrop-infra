@@ -435,3 +435,37 @@ fixture reseeding. Already applied versions are skipped. Identity may have
 completed before Delivery failed; rerunning safely checks Identity again.
 Take a Neon snapshot/backup before applying schema changes to valuable shared
 data; pending migration SQL must still be reviewed for future destructive changes.
+
+### Local PostgreSQL assessment stack
+
+From this repository, with sibling backend and frontend checkouts and Docker
+running, start the assessment stack with a POSIX shell (Git Bash on Windows)
+and OpenSSL:
+
+```sh
+sh development/assessment.sh up
+sh development/assessment.sh ps
+sh development/assessment.sh verify
+```
+
+Open http://localhost:5173. The gateway listens on http://localhost:5000.
+The assessment uses the same loopback ports and Docker subnet as the regular
+development stack, so stop the regular stack before starting the assessment.
+The assessment runs as a separate Compose project with its own volumes.
+
+The first run generates independent local credentials in the ignored
+`development/.env.assessment` file. Keep this file with the PostgreSQL volume:
+the SQL initialization runs only on a fresh volume. PostgreSQL has no published
+host port. Each service runtime and migration login can connect only to its
+database. The Delivery relay can read the outbox and update its publication
+timestamp. All four migrations run before the application stack starts.
+
+```sh
+sh development/assessment.sh down
+```
+
+Shutdown retains the database, broker, Identity keys and workload-token volumes.
+Run `up` again to reuse them. To intentionally reset assessment data, add
+`--volumes` to a direct `docker compose down` command using both development
+Compose files and the assessment env file. Keep the existing
+`development/run.sh` and its `development/.env` for the external Neon setup.
