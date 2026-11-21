@@ -5,12 +5,24 @@ resources:
   - ../../base
   - postgres.yaml
   - identity-data.yaml
+  - ingress.yaml
+  - https-policy.yaml
+  - web-ingress-policy.yaml
 patches:
   - target: {kind: Namespace, name: swiftdrop}
     patch: |-
       - op: replace
         path: /metadata/name
         value: swiftdrop-assessment
+  - target: {kind: NetworkPolicy, name: allow-gateway-ingress}
+    patch: |-
+      - op: add
+        path: /spec/ingress/0/from
+        value:
+          - namespaceSelector:
+              matchLabels: {kubernetes.io/metadata.name: kube-system}
+            podSelector:
+              matchLabels: {app.kubernetes.io/name: traefik}
   - path: signing.yaml
   - path: merchant-webhook-key.yaml
   - path: workload-tokens.yaml
@@ -31,7 +43,7 @@ patches:
         DOTNET_ENVIRONMENT: "Development"
         Identity__Tokens__PrivateKeyPath: "/run/identity-signing/signing.pem"
         Identity__Tokens__KeyId: "assessment"
-        Identity__Browser__AllowedOrigins__0: "http://localhost:15173"
+        Identity__Browser__AllowedOrigins__0: "https://localhost:18443"
   - target: {kind: ConfigMap, name: delivery-config}
     patch: |-
       apiVersion: v1

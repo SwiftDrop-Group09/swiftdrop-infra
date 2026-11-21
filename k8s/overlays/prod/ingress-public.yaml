@@ -2,19 +2,17 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: swiftdrop
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
+  tls:
+    - hosts: [api.swiftdrop.example.com]
+      secretName: swiftdrop-gateway-tls
   rules:
     - host: api.swiftdrop.example.com
       http:
         paths:
           - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: gateway
-                port:
-                  number: 8080
-          - path: /graphql
             pathType: Prefix
             backend:
               service:

@@ -5,6 +5,11 @@ on:
     branches: [main, dev]
   pull_request:
   workflow_dispatch:
+    inputs:
+      assessment_smoke:
+        description: Build and smoke-test an isolated k3d assessment cluster
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,3 +59,63 @@ jobs:
           kubectl kustomize "k8s/overlays/${{ matrix.overlay }}" > rendered.yaml
           kubeconform -strict -ignore-missing-schemas -summary rendered.yaml
 
+  assessment-cluster:
+    if: github.event_name == 'workflow_dispatch' && inputs.assessment_smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: swiftdrop-infra
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: swiftdrop-infra
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: SwiftDrop-Group09/swiftdrop-backend
+          ref: dev
+          path: swiftdrop-backend
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: SwiftDrop-Group09/swiftdrop-frontend
+          ref: dev
+          path: swiftdrop-frontend
+          persist-credentials: false
+      - uses: azure/setup-kubectl@v4
+      - name: Create isolated k3d cluster
+        run: |
+          download="$(mktemp -d)"
+          base=https://github.com/k3d-io/k3d/releases/download/v5.9.0
+          curl -fsSL "$base/k3d-linux-amd64" -o "$download/k3d-linux-amd64"
+          (cd "$download" && printf '%s\n' '06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0  k3d-linux-amd64' | sha256sum --check)
+          install -m 0755 "$download/k3d-linux-amd64" "$RUNNER_TEMP/k3d"
+          "$RUNNER_TEMP/k3d" cluster create swiftdrop --wait
+          test "$(kubectl config current-context)" = k3d-swiftdrop
+      - name: Build images and install assessment workloads
+        run: |
+          set -o pipefail
+          sh development/assessment.sh up
+          python3 -B scripts/deploy-assessment-k3d.py --ca-output "$RUNNER_TEMP/assessment-ca.pem" | tee "$RUNNER_TEMP/assessment-install.txt"
+      - name: Verify local HTTPS and broker recovery
+        run: |
+          kubectl --context k3d-swiftdrop -n kube-system port-forward --address=127.0.0.1 svc/traefik 18443:443 > "$RUNNER_TEMP/assessment-forward.txt" 2>&1 &
+          forward=$!
+          trap 'kill "$forward" 2>/dev/null || true' EXIT
+          curl --cacert "$RUNNER_TEMP/assessment-ca.pem" --retry 8 --retry-connrefused --retry-delay 2 --fail --silent --show-error https://localhost:18443/health
+          curl --cacert "$RUNNER_TEMP/assessment-ca.pem" --retry 8 --retry-delay 2 --max-time 15 --fail --silent --show-error \
+            -H 'Sec-Fetch-Site: same-origin' https://localhost:18443/api/v1/auth/csrf >/dev/null
+          python3 -B scripts/test-assessment.py --kubernetes --ca-file "$RUNNER_TEMP/assessment-ca.pem" --output "$RUNNER_TEMP/assessment-smoke.json"
+      - name: Collect sanitized Kubernetes evidence
+        if: always()
+        run: python3 -B scripts/kubernetes_diagnostics.py --context k3d-swiftdrop --namespace swiftdrop-assessment --output "$RUNNER_TEMP/assessment-status.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-assessment
+          path: |
+            ${{ runner.temp }}/assessment-install.txt
+            ${{ runner.temp }}/assessment-forward.txt
+            ${{ runner.temp }}/assessment-smoke.json
+            ${{ runner.temp }}/assessment-status.json
